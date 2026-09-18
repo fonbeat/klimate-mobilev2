@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Klimate",
+    "slug": "klimate-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "klimate",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.klimate.mobile",
+      "buildNumber": "1",
+      "config": { "usesNonExemptEncryption": false }
+    },
+    "android": {
+      "package": "app.klimate.mobile",
+      "versionCode": 1,
+      "adaptiveIcon": { "backgroundColor": "#071a2d" },
+      "permissions": ["POST_NOTIFICATIONS"]
+    },
+    "plugins": [
+      "expo-router",
+      ["expo-secure-store", { "configureAndroidBackup": true }],
+      ["expo-notifications", { "defaultChannel": "incidents" }]
+    ],
+    "experiments": { "typedRoutes": true }
+  }
+}
