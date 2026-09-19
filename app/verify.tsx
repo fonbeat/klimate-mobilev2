@@ -1,5 +1,5 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { messageOf } from '@/api';
@@ -7,24 +7,29 @@ import { useSession } from '@/session';
 import { colors } from '@/theme';
 
 export default function Verify() {
-  const { token = '', email = '' } = useLocalSearchParams<{ token: string; email: string }>();
-  const { verify } = useSession();
+  const { pendingLoginChallenge, verify } = useSession();
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   async function submit() {
     if (code.trim().length < 4) return setError('Enter the verification code from your email.');
     setBusy(true); setError('');
-    try { await verify(token, code.trim()); router.replace('/(tabs)'); }
+    try { await verify(code.trim()); router.replace('/(tabs)'); }
     catch (err) { setError(messageOf(err)); }
     finally { setBusy(false); }
   }
+  useEffect(() => {
+    if (!pendingLoginChallenge) router.replace('/sign-in');
+  }, [pendingLoginChallenge]);
+
+  if (!pendingLoginChallenge) return null;
+
   return <SafeAreaView style={styles.safe}><KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    <Pressable onPress={() => router.back()}><Text style={styles.back}>‹ Back</Text></Pressable>
-    <View style={styles.content}><Text style={styles.eyebrow}>TWO-STEP VERIFICATION</Text><Text style={styles.title}>Check your email</Text><Text style={styles.detail}>Enter the one-time code sent to {email}.</Text>
-      <TextInput autoFocus keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="one-time-code" maxLength={8} value={code} onChangeText={setCode} style={styles.code} onSubmitEditing={submit} />
-      {!!error && <Text style={styles.error}>{error}</Text>}
-      <Pressable onPress={submit} disabled={busy} style={styles.button}>{busy ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Verify and open Klimate</Text>}</Pressable>
+    <Pressable accessibilityRole="button" accessibilityLabel="Back to sign in" onPress={() => router.back()}><Text style={styles.back}>‹ Back</Text></Pressable>
+    <View style={styles.content}><Text style={styles.eyebrow}>TWO-STEP VERIFICATION</Text><Text style={styles.title}>Check your email</Text><Text style={styles.detail}>Enter the one-time code sent to {pendingLoginChallenge.email}.</Text>
+      <TextInput accessibilityLabel="Verification code" autoFocus keyboardType="number-pad" textContentType="oneTimeCode" autoComplete="one-time-code" maxLength={8} value={code} onChangeText={setCode} style={styles.code} onSubmitEditing={submit} />
+      {!!error && <Text accessibilityLiveRegion="assertive" style={styles.error}>{error}</Text>}
+      <Pressable accessibilityRole="button" accessibilityState={{ busy, disabled: busy }} onPress={submit} disabled={busy} style={styles.button}>{busy ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Verify and open Klimate</Text>}</Pressable>
     </View>
   </KeyboardAvoidingView></SafeAreaView>;
 }

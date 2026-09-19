@@ -1,24 +1,83 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Card, Page, PageTitle, State, StatusPill, shared } from '@/components';
-import { colors } from '@/theme';
-import type { MonitorPage } from '@/types';
-import { useApiData } from '@/use-api';
+import { Card, FilterBar, ListFooter, PageTitle, SearchField, State, StatusIndicator, useResponsiveLayout } from '@/components';
+import { monitorMeasurement, monitorProtocolLabel } from '@/monitor-display';
+import { layout, spacing, typography } from '@/tokens';
+import { useV2Theme } from '@/theme';
+import type { Monitor, MonitorPage } from '@/types';
+import { useDebouncedValue, usePaginatedApi } from '@/use-paginated-api';
 
 const filters = ['All', 'Down', 'Attention', 'Up', 'Unknown'];
+const pageItems = (page: MonitorPage) => page.records;
+const pageTotal = (page: MonitorPage) => page.total;
+
 export default function Monitors() {
-  const result = useApiData<MonitorPage>('/v2/status/monitors?offset=0&limit=100');
+  const { colors } = useV2Theme();
+  const responsive = useResponsiveLayout();
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
-  const records = useMemo(() => (result.data?.records ?? []).filter((m) => (filter === 'All' || m.status.toLowerCase() === filter.toLowerCase()) && (!search || `${m.label} ${m.monitorLabel} ${m.host} ${m.type}`.toLowerCase().includes(search.toLowerCase()))), [result.data, filter, search]);
-  return <SafeAreaView style={styles.safe} edges={['top']}><Page refreshing={result.refreshing} onRefresh={result.reload}>
-    <PageTitle eyebrow="LIVE ENVIRONMENT" title="Monitors" detail="Every check, in one glance." />
-    <View style={styles.search}><Ionicons name="search" size={18} color={colors.muted} /><TextInput value={search} onChangeText={setSearch} placeholder="Search name, host, or type" placeholderTextColor={colors.muted} style={styles.input} /></View>
-    <View style={styles.filters}>{filters.map((item) => <Pressable key={item} onPress={() => setFilter(item)} style={[styles.filter, filter === item && styles.filterActive]}><Text style={[styles.filterText, filter === item && styles.filterTextActive]}>{item}</Text></Pressable>)}</View>
-    <State loading={result.loading} error={result.error} onRetry={result.reload} empty={!result.loading && !records.length ? 'No monitors match this view.' : undefined} />
-    {records.map((monitor) => <Card key={monitor.monitorID ?? monitor.ID}><View style={shared.between}><View style={{ flex: 1, paddingRight: 10 }}><Text style={shared.label}>{monitor.displayName || monitor.label}</Text><Text style={styles.host} numberOfLines={1}>{monitor.host || monitor.monitorLabel}</Text></View><StatusPill status={monitor.status} /></View><View style={styles.meta}><Text style={styles.type}>{monitor.type}</Text><Text style={shared.muted}>{monitor.rtt || monitor.lastChecked}</Text></View>{!!monitor.statusMessage && <Text style={styles.message}>{monitor.statusMessage}</Text>}</Card>)}
-  </Page></SafeAreaView>;
+  const debouncedSearch = useDebouncedValue(search.trim());
+  const pagePath = useCallback((offset: number, limit: number) => {
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    if (filter !== 'All') params.set('status', filter.toLowerCase());
+    if (debouncedSearch) params.set('search', debouncedSearch);
+    return `/v2/status/monitors?${params}`;
+  }, [debouncedSearch, filter]);
+  const result = usePaginatedApi<MonitorPage, Monitor>({ path: pagePath, items: pageItems, total: pageTotal });
+
+  const header = <View style={styles.header}>
+    <PageTitle eyebrow="LIVE ENVIRONMENT" title="Monitors" detail={`${result.total || 'Every'} check${result.total === 1 ? '' : 's'}, in one glance.`} />
+    <SearchField value={search} onChangeText={setSearch} placeholder="Search monitors" />
+    <FilterBar options={filters} value={filter} onChange={setFilter} label="Monitor status" />
+  </View>;
+
+  return <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
+    <FlatList
+      key={responsive.columns}
+      data={result.records}
+      numColumns={responsive.columns}
+      keyExtractor={(monitor) => monitor.monitorID ?? monitor.ID}
+      contentContainerStyle={[styles.content, { paddingHorizontal: responsive.gutter }, !result.records.length && styles.grow]}
+      columnWrapperStyle={responsive.columns > 1 ? styles.columns : undefined}
+      ItemSeparatorComponent={() => <View style={{ height: layout.listGap }} />}
+      ListHeaderComponent={header}
+      ListHeaderComponentStyle={styles.headerSpacing}
+      ListEmptyComponent={<State loading={result.loading} error={result.error} onRetry={result.reload} empty={!result.loading && !result.error ? 'No monitors match this view.' : undefined} />}
+      ListFooterComponent={result.records.length ? <ListFooter loading={result.loadingMore} hasMore={result.hasMore} /> : null}
+      renderItem={({ item }) => <View style={responsive.columns > 1 ? styles.column : undefined}><MonitorCard monitor={item} /></View>}
+      refreshing={result.refreshing}
+      onRefresh={result.reload}
+      onEndReached={result.loadMore}
+      onEndReachedThreshold={.45}
+      keyboardShouldPersistTaps="handled"
+    />
+  </SafeAreaView>;
 }
-const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: colors.canvas }, search: { height: 48, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 13, borderRadius: 12, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card }, input: { flex: 1, color: colors.ink, fontSize: 14 }, filters: { flexDirection: 'row', gap: 7, flexWrap: 'wrap' }, filter: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 99, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line }, filterActive: { backgroundColor: colors.cyan, borderColor: colors.cyan }, filterText: { color: colors.muted, fontSize: 11, fontWeight: '800' }, filterTextActive: { color: colors.deep }, host: { color: colors.muted, fontSize: 13, marginTop: 4 }, meta: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 15, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.line }, type: { color: colors.cyan, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }, message: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 9 } });
+
+function MonitorCard({ monitor }: { monitor: Monitor }) {
+  const { colors } = useV2Theme();
+  const protocol = monitorProtocolLabel(monitor);
+  const measurement = monitorMeasurement(monitor);
+  return <Card style={styles.card} accessibilityLabel={`${monitor.label}, ${monitor.host}, ${protocol}, ${monitor.status}, ${measurement}`}>
+    <View style={styles.cardTop}><View style={styles.cardIdentity}><Text numberOfLines={1} style={[styles.name, { color: colors.ink }]}>{monitor.label}</Text><Text numberOfLines={1} style={[styles.host, { color: colors.muted }]}>{monitor.host || monitor.monitorLabel}</Text></View><StatusIndicator status={monitor.status} size={13} /></View>
+    <View style={styles.cardBottom}><Text numberOfLines={1} style={[styles.protocol, { color: colors.muted }]}>{protocol}</Text><Text numberOfLines={1} style={[styles.measurement, { color: colors.muted }]}>{measurement}</Text></View>
+  </Card>;
+}
+
+const styles = StyleSheet.create({
+  content: { width: '100%', maxWidth: layout.contentMaxWidth, alignSelf: 'center', paddingTop: spacing.sm, paddingBottom: spacing.xxxl },
+  grow: { flexGrow: 1 },
+  header: { gap: spacing.md },
+  headerSpacing: { marginBottom: spacing.lg },
+  columns: { gap: layout.listGap },
+  column: { flex: 1 },
+  card: { minHeight: 112, justifyContent: 'space-between' },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  cardIdentity: { flex: 1 },
+  name: typography.cardTitle,
+  host: { ...typography.metadata, marginTop: spacing.xs },
+  cardBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, marginTop: spacing.md },
+  protocol: { ...typography.metadata, flex: 1 },
+  measurement: { ...typography.metadata, textAlign: 'right', maxWidth: '48%' },
+});

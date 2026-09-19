@@ -1,8 +1,12 @@
+export type OrganizationRole = 'owner' | 'administrator' | 'read_only';
+
 export type SessionUser = {
   ID: string;
   firstname: string;
   lastname: string;
+  role: OrganizationRole;
   isAdmin: boolean;
+  isOwner: boolean;
   email: string;
 };
 
@@ -21,11 +25,32 @@ export type SessionOrganization = {
   tenantId: string;
   name: string;
   accountNo: string;
-  role: string;
+  role: OrganizationRole;
   isCurrent: boolean;
 };
 
 export type SessionOrganizations = { organizations: SessionOrganization[] };
+
+export type PushPreferences = { monitorDown: boolean; probeOffline: boolean };
+
+export type NotificationInboxItem = {
+  id: string;
+  eventType: 'monitor_down' | 'probe_offline';
+  resourceType: 'monitor' | 'probe';
+  resourceId: string;
+  title: string;
+  body: string;
+  read: boolean;
+  createdAt: string;
+};
+
+export type NotificationInboxPage = {
+  records: NotificationInboxItem[];
+  total: number;
+  unread: number;
+  offset: number;
+  limit: number;
+};
 
 export type LoginChallenge = {
   user: SessionUser;
@@ -45,6 +70,7 @@ export type StatusSummary = {
 
 export type Monitor = {
   ID: string;
+  kind?: string;
   targetID: string;
   monitorID?: string;
   label: string;
@@ -58,6 +84,10 @@ export type Monitor = {
   probeName: string;
   lastChecked: string;
   tags: string[];
+  liveMetric?: { kind: string; label: string; value: number | null; unit?: string };
+  path?: { hopCount?: number | null; latencyMs?: number | null; packetLossPercent?: number | null };
+  snmp?: { healthMetric?: { key: string; label: string; severity: string; value: number | null; unit: string } | null };
+  flow?: { throughputBps?: number | null; flowsPerSecond?: number | null };
 };
 
 export type MonitorPage = { offset: number; limit: number; total: number; records: Monitor[] };
@@ -75,6 +105,9 @@ export type Incident = {
   startedAt: string;
   resolvedAt?: string | null;
   duration: string;
+  acknowledgedBy?: string;
+  acknowledgedAt?: string | null;
+  acknowledgementNote?: string;
 };
 
 export type IncidentPage = { lastUpdated: string; total: number; page: number; pageSize: number; incidents: Incident[] };
@@ -107,4 +140,4 @@ export type Probe = {
   assignedWork: { targetCount: number; monitorCount: number };
   software: { installedVersion: string; state: string; statusMessage: string };
 };
-export type ProbeView = { generatedAt: string; probes: Probe[]; total: number };
+export type ProbeView = { generatedAt: string; probes: Probe[]; total: number; offset: number; limit: number };

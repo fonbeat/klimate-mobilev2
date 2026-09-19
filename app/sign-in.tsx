@@ -17,8 +17,8 @@ export default function SignIn() {
     if (!email.trim() || !password) return setError('Enter your email and password.');
     setBusy(true); setError('');
     try {
-      const challenge = await login(email, password);
-      router.push({ pathname: '/verify', params: { token: challenge.verificationToken, email } });
+      await login(email, password);
+      router.push('/verify');
     } catch (err) { setError(messageOf(err)); }
     finally { setBusy(false); }
   }
@@ -30,11 +30,11 @@ export default function SignIn() {
         <View style={styles.copy}><Text style={styles.eyebrow}>YOUR ENVIRONMENT, WITH YOU</Text><Text style={styles.title}>Know what’s happening. Wherever you are.</Text><Text style={styles.subtitle}>Secure access to your enterprise monitoring from anywhere.</Text></View>
         <View style={styles.form}>
           <Text style={styles.label}>Work email</Text>
-          <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={email} onChangeText={setEmail} placeholder="you@company.com" placeholderTextColor="#8794A1" style={styles.input} />
+          <TextInput accessibilityLabel="Work email" autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={email} onChangeText={setEmail} placeholder="you@company.com" placeholderTextColor="#8794A1" style={styles.input} />
           <Text style={styles.label}>Password</Text>
-          <TextInput secureTextEntry autoComplete="current-password" value={password} onChangeText={setPassword} placeholder="Your password" placeholderTextColor="#8794A1" style={styles.input} onSubmitEditing={submit} />
-          {!!error && <Text style={styles.error}>{error}</Text>}
-          <Pressable onPress={submit} disabled={busy} style={({ pressed }) => [styles.button, pressed && { opacity: .86 }, busy && { opacity: .7 }]}>{busy ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Continue securely</Text>}</Pressable>
+          <TextInput accessibilityLabel="Password" secureTextEntry autoComplete="current-password" value={password} onChangeText={setPassword} placeholder="Your password" placeholderTextColor="#8794A1" style={styles.input} onSubmitEditing={submit} />
+          {!!error && <Text accessibilityLiveRegion="assertive" style={styles.error}>{error}</Text>}
+          <Pressable accessibilityRole="button" accessibilityState={{ busy, disabled: busy }} onPress={submit} disabled={busy} style={({ pressed }) => [styles.button, pressed && { opacity: .86 }, busy && { opacity: .7 }]}>{busy ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Continue securely</Text>}</Pressable>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
