@@ -3,12 +3,13 @@ import * as SecureStore from 'expo-secure-store';
 import { syncAppBadge } from './notifications';
 import { useSession } from './session';
 import { useAuthenticatedRequest } from './use-api';
-import { checkRecoveries, isRecovered, outstandingUnread, readUnreadInbox, recoveryStorageKey, type RecoveryLedger } from './inbox-recovery';
+import { checkRecoveries, isRecovered, outstandingUnread, recoveryStorageKey, type RecoveryLedger } from './inbox-recovery';
+import { InboxHealthCache, UnreadInboxCache } from './inbox-refresh-cache';
 import type { NotificationInboxItem } from './types';
 
 type InboxBadgeContextValue = {
   unread: number | null;
-  refresh: () => Promise<void>;
+  refresh: (force?: boolean) => Promise<void>;
   inspect: (items: NotificationInboxItem[]) => Promise<void>;
   recovered: (item: NotificationInboxItem) => boolean;
   invalidate: () => void;
@@ -21,6 +22,7 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
   const { session } = useSession();
   const request = useAuthenticatedRequest();
   const scope = session ? `${session.user.ID}:${session.tenantId ?? ''}` : '';
+  const cache = useMemo(() => ({ unread: new UnreadInboxCache(), health: new InboxHealthCache() }), [scope]);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   const revision = useRef(0);
@@ -34,20 +36,21 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
 
   const recoveries = useCallback(async (items: NotificationInboxItem[], current: () => boolean) => {
     const ledger = snapshotRef.current.scope === scope ? snapshotRef.current.ledger : {};
-    return checkRecoveries(items, ledger, { read: request, current,
-      load: (key) => SecureStore.getItemAsync(recoveryStorageKey(scope, key)),
+    return checkRecoveries(items, ledger, { read: (path) => cache.health.read(path, request), current,
+      load: (key) => cache.health.load(key, () => SecureStore.getItemAsync(recoveryStorageKey(scope, key))),
       save: (key, value) => SecureStore.setItemAsync(recoveryStorageKey(scope, key), value),
     });
-  }, [request, scope]);
+  }, [request, scope, cache]);
 
-  const refresh = useCallback((): Promise<void> => {
+  const refresh = useCallback((force = false): Promise<void> => {
     if (!scope) return Promise.resolve();
+    if (force) { invalidate(); cache.health.clear(); }
     if (pending.current?.scope === scope) return pending.current.operation;
     const id = revision.current;
     const current = () => revision.current === id && scopeRef.current === scope;
     const operation = (async () => {
       try {
-        const page = await readUnreadInbox(request, current);
+        const page = await cache.unread.read(request, current, force);
         if (!page) return;
         setSnapshot((previous) => ({ scope, serverUnread: page.unread, items: page.items, ledger: previous.scope === scope ? previous.ledger : {} }));
         const ledger = await recoveries(page.items, current);
@@ -58,7 +61,7 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
     pending.current = { scope, operation };
     void operation.finally(() => { if (pending.current?.operation === operation) pending.current = null; });
     return operation;
-  }, [recoveries, request, scope]);
+  }, [recoveries, request, scope, cache, invalidate]);
 
   const inspect = useCallback(async (items: NotificationInboxItem[]) => {
     if (!scope || !items.length) return;
@@ -72,13 +75,14 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
 
   const recordRead = useCallback((id?: string) => {
     invalidate();
+    cache.unread.recordRead(id);
     setSnapshot((previous) => {
       if (previous.scope !== scope) return previous;
       if (!id) return { ...previous, serverUnread: 0, items: [] };
       const wasUnread = previous.items.some((item) => item.id === id && !item.read);
       return { ...previous, serverUnread: previous.serverUnread == null ? null : Math.max(0, previous.serverUnread - (wasUnread ? 1 : 0)), items: previous.items.filter((item) => item.id !== id) };
     });
-  }, [invalidate, scope]);
+  }, [invalidate, scope, cache]);
   const ledger = useMemo(() => snapshot.scope === scope ? snapshot.ledger : {}, [scope, snapshot]);
   const unread = snapshot.scope === scope && snapshot.serverUnread != null ? outstandingUnread(snapshot.serverUnread, snapshot.items, ledger) : null;
   const recovered = useCallback((item: NotificationInboxItem) => isRecovered(item, ledger), [ledger]);

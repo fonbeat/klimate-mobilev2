@@ -27,3 +27,11 @@ test('Overview bell opens the root Inbox and closing it returns to the previous 
   const inbox = readFileSync(new URL('./notification-inbox.tsx', import.meta.url), 'utf8');
   assert.match(inbox, /accessibilityLabel="Close Inbox" onPress=\{\(\) => router\.back\(\)\}/);
 });
+
+test('opening an Inbox alert navigates before its read-state write and never awaits badge reconciliation', () => {
+  const inbox = readFileSync(new URL('./notification-inbox.tsx', import.meta.url), 'utf8');
+  const action = inbox.slice(inbox.indexOf('const markRead ='), inbox.indexOf('const markAllRead ='));
+  assert.ok(action.indexOf('router.push(') < action.indexOf('await request<void>'));
+  assert.equal(action.includes('await refreshBadge()'), false);
+  assert.equal(action.includes('await result.refreshVisible()'), false);
+});

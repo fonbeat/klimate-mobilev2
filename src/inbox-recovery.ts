@@ -29,12 +29,12 @@ export function inboxItems(items: NotificationInboxItem[], unreadOnly: boolean, 
   return unreadOnly ? items.filter((item) => !item.read && !recovered(item)) : items;
 }
 
-export async function readUnreadInbox(read: InboxRead, current: () => boolean) {
+export async function readUnreadInbox(read: InboxRead, current: () => boolean, head?: NotificationInboxPage) {
   const items = new Map<string, NotificationInboxItem>();
   let offset = 0;
   let unread = 0;
   do {
-    const page = await read<NotificationInboxPage>(`/v2/notifications?offset=${offset}&limit=100&unreadOnly=true`);
+    const page = offset === 0 && head ? head : await read<NotificationInboxPage>(`/v2/notifications?offset=${offset}&limit=100&unreadOnly=true`);
     if (!current()) return undefined;
     unread = page.unread;
     const previous = items.size;
@@ -46,13 +46,14 @@ export async function readUnreadInbox(read: InboxRead, current: () => boolean) {
 }
 
 export async function checkRecoveries(items: NotificationInboxItem[], ledger: RecoveryLedger, {
-  read, load, save, current, now = Date.now(),
+  read, load, save, current, now,
 }: { read: InboxRead; load: (key: string) => Promise<string | null>; save: (key: string, value: string) => Promise<void>; current: () => boolean; now?: number }) {
   const next = { ...ledger };
+  const clock = () => now ?? Date.now();
   const resources = new Map<string, NotificationInboxItem[]>();
   for (const item of items) {
     const key = recoveryKey(item);
-    if (key) resources.set(key, [...resources.get(key) ?? [], item]);
+    if (key) { const group = resources.get(key) ?? []; group.push(item); resources.set(key, group); }
   }
   const queue = [...resources.entries()];
   // Bound parallel reads; a busy Inbox must not flood the API with reports.
@@ -63,9 +64,9 @@ export async function checkRecoveries(items: NotificationInboxItem[], ledger: Re
       const [key, alerts] = entry;
       const item = alerts[0];
       try {
-        const saved = Number(await load(key).catch(() => null));
+        const saved = key in next ? next[key] : Number(await load(key).catch(() => null));
         if (!current()) return;
-        if (Number.isFinite(saved) && saved > 0 && saved <= now + 60_000) next[key] = Math.max(next[key] ?? 0, saved);
+        if (Number.isFinite(saved) && saved > 0 && saved <= clock() + 60_000) next[key] = Math.max(next[key] ?? 0, saved);
         if (alerts.every((candidate) => isRecovered(candidate, next))) continue;
         const monitor = item.resourceType === 'monitor';
         const status = await read<{ status: string; generatedAt?: string; lastSeenAt?: string | null }>(monitor
@@ -76,7 +77,7 @@ export async function checkRecoveries(items: NotificationInboxItem[], ledger: Re
         // lastUpdated is only a display clock. Gateways expose heartbeat time.
         const healthy = monitor ? status.status?.toLowerCase() === 'up' : status.status?.toLowerCase() === 'online';
         const at = Date.parse((monitor ? status.generatedAt : status.lastSeenAt) ?? '');
-        if (!healthy || !Number.isFinite(at) || at > now + 60_000 || now - at > 5 * 60_000) continue;
+        if (!healthy || !Number.isFinite(at) || at > clock() + 60_000 || clock() - at > 5 * 60_000) continue;
         if (at > (next[key] ?? 0)) {
           next[key] = at;
           await save(key, String(at)).catch(() => undefined);

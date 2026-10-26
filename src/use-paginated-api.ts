@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, api, messageOf } from './api';
+import { messageOf } from './api';
 import { useSession } from './session';
 import { readPageRange } from './read-page-range';
+import { useAuthenticatedRequest } from './use-api';
+import { sessionScope } from './session-authority';
 
 type PaginatedOptions<TPage, TItem> = {
   enabled?: boolean;
@@ -13,7 +15,10 @@ type PaginatedOptions<TPage, TItem> = {
 };
 
 export function usePaginatedApi<TPage, TItem>({ enabled = true, pageSize = 30, path, items: selectItems, total: selectTotal, onPage }: PaginatedOptions<TPage, TItem>) {
-  const { session, refresh, signOut } = useSession();
+  const { session } = useSession();
+  const request = useAuthenticatedRequest();
+  const requestRef = useRef(request);
+  requestRef.current = request;
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const scope = session ? `${session.user.ID}:${session.tenantId ?? ''}` : '';
@@ -30,7 +35,7 @@ export function usePaginatedApi<TPage, TItem>({ enabled = true, pageSize = 30, p
 
   const requestPage = useCallback((offset: number, mode: 'initial' | 'refresh' | 'more' | 'background'): Promise<void> => {
     const currentSession = sessionRef.current;
-    if (!enabled || !currentSession) return Promise.resolve();
+    if (!enabled || !currentSession || sessionScope(currentSession) !== scope) return Promise.resolve();
     if (pending.current) return pending.current;
     const id = ++requestId.current;
     const operation = (async () => {
@@ -39,19 +44,10 @@ export function usePaginatedApi<TPage, TItem>({ enabled = true, pageSize = 30, p
     if (mode === 'more') setLoadingMore(true);
     setError(null);
     try {
-      let accessToken = currentSession.accessToken;
+      const read = requestRef.current;
       const wanted = mode === 'background' ? Math.max(pageSize, loadedCount.current) : pageSize;
       const range = await readPageRange<TPage, TItem>({ offset, pageSize, wanted, current: () => requestId.current === id,
-        items: selectItems, total: selectTotal, onPage, read: async (pageOffset, limit) => {
-        try {
-          return await api<TPage>(path(pageOffset, limit), { token: accessToken });
-        } catch (first) {
-          if (!(first instanceof ApiError) || first.status !== 401 || first.code !== 'ACCESS_TOKEN_EXPIRED') throw first;
-          const next = await refresh();
-          accessToken = next.accessToken;
-          return await api<TPage>(path(pageOffset, limit), { token: accessToken });
-        }
-      } });
+        items: selectItems, total: selectTotal, onPage, read: (pageOffset, limit) => read<TPage>(path(pageOffset, limit)) });
       if (!range || requestId.current !== id) return;
       const nextItems = range.records;
       dataScope.current = scope;
@@ -61,7 +57,6 @@ export function usePaginatedApi<TPage, TItem>({ enabled = true, pageSize = 30, p
     } catch (caught) {
       if (requestId.current !== id) return;
       setError(messageOf(caught));
-      if (caught instanceof ApiError && caught.status === 401) await signOut();
     } finally {
       if (requestId.current === id) {
         setLoading(false);
@@ -73,7 +68,7 @@ export function usePaginatedApi<TPage, TItem>({ enabled = true, pageSize = 30, p
     pending.current = operation;
     void operation.finally(() => { if (pending.current === operation) pending.current = null; }).catch(() => undefined);
     return operation;
-  }, [enabled, onPage, pageSize, path, refresh, selectItems, selectTotal, scope, signOut]);
+  }, [enabled, onPage, pageSize, path, selectItems, selectTotal, scope]);
 
   useEffect(() => {
     requestId.current += 1;

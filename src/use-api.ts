@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, api, messageOf } from './api';
 import { useSession } from './session';
+import { authenticatedRequest, sessionScope } from './session-authority';
 
 export function useApiData<T>(path: string, enabled = true) {
-  const { session, refresh, signOut } = useSession();
+  const { session } = useSession();
+  const request = useAuthenticatedRequest();
+  const requestRef = useRef(request);
+  requestRef.current = request;
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const scope = session ? `${session.user.ID}:${session.tenantId ?? ''}` : '';
@@ -17,28 +21,18 @@ export function useApiData<T>(path: string, enabled = true) {
 
   const load = useCallback(async (mode: 'initial' | 'manual' | 'background' = 'initial') => {
     const currentSession = sessionRef.current;
-    if (!currentSession || !enabled) return;
+    if (!currentSession || !enabled || sessionScope(currentSession) !== scope) return;
     const id = ++requestId.current;
     if (mode === 'manual') setRefreshing(true);
     if (mode === 'initial') setLoading(true);
     setError(null);
     setErrorCode(undefined);
     try {
-      const next = await api<T>(path, { token: currentSession.accessToken });
+      const next = await requestRef.current<T>(path);
       if (requestId.current === id) { dataScope.current = scope; setData(next); }
     } catch (first) {
       if (requestId.current !== id) return;
-      if (first instanceof ApiError && first.status === 401 && first.code === 'ACCESS_TOKEN_EXPIRED') {
-        try {
-          const next = await refresh();
-          const retried = await api<T>(path, { token: next.accessToken });
-          if (requestId.current === id) { dataScope.current = scope; setData(retried); }
-        } catch (second) {
-          if (requestId.current !== id) return;
-          if (requestId.current === id) setError(messageOf(second));
-          if (second instanceof ApiError && second.status === 401) await signOut();
-        }
-      } else if (requestId.current === id) {
+      if (requestId.current === id) {
         setError(messageOf(first));
         setErrorCode(first instanceof ApiError ? first.code : undefined);
         if (first instanceof ApiError && first.code === 'MODULE_DISABLED') setData(null);
@@ -49,7 +43,7 @@ export function useApiData<T>(path: string, enabled = true) {
         setRefreshing(false);
       }
     }
-  }, [enabled, path, refresh, scope, signOut]);
+  }, [enabled, path, scope]);
 
   useEffect(() => {
     setData(null);
@@ -67,20 +61,9 @@ export function useApiData<T>(path: string, enabled = true) {
 }
 
 export function useAuthenticatedRequest() {
-  const { session, refresh, signOut } = useSession();
+  const { session, authority } = useSession();
+  const lease = useMemo(() => authority.capture(), [authority, session]);
   return useCallback(async <T,>(path: string, init: Omit<Parameters<typeof api<T>>[1], 'token'> = {}) => {
-    if (!session) throw new Error('Your session has expired.');
-    try {
-      return await api<T>(path, { ...init, token: session.accessToken });
-    } catch (first) {
-      if (!(first instanceof ApiError) || first.status !== 401 || first.code !== 'ACCESS_TOKEN_EXPIRED') throw first;
-      try {
-        const next = await refresh();
-        return await api<T>(path, { ...init, token: next.accessToken });
-      } catch (second) {
-        if (second instanceof ApiError && second.status === 401) await signOut();
-        throw second;
-      }
-    }
-  }, [refresh, session, signOut]);
+    return authenticatedRequest<T>(authority, lease, path, init, api);
+  }, [authority, lease]);
 }

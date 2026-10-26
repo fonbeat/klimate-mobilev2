@@ -20,6 +20,16 @@ The mobile bell and Unread filter exclude outage messages after the app confirms
 
 Recovery watermarks are stored on this phone, isolated by signed-in user, organization and resource. A later outage remains new; Unknown, paused, missing resources, failed requests and stale responses never imply recovery. Reconciliation runs on Overview/Inbox focus, foreground refresh and pull-to-refresh, including unread messages beyond the first page. It cannot reconcile while the app is suspended or change badge numbers supplied by the push server in the background; foreground refresh corrects the mobile badge. Recoveries that happened and failed again while the phone was offline may remain unconfirmed because Inbox messages do not identify their outage episode.
 
+Normal refreshes always check the newest unread page and reuse verified history for up to two minutes. New arrivals merge into that history only when their IDs and unread-count delta agree. External reads, changed history, expiry and pull-to-refresh force a complete reconciliation. Resource checks are coalesced/cached for 30 seconds (failed checks for five seconds); caches are bounded and isolated by organization/user. Alert details open immediately, while read-state writes and reconciliation finish separately.
+
+## Session and push lifecycle safety
+
+Session refreshes and organization switches are serialized through secure-storage commits. Requests hold identity-bound leases: token refresh within the same organization is allowed, but a request is never replayed across organization changes, sign-out, or a later sign-in. Sign-out invalidates the local session immediately; stale refresh/login responses cannot restore it.
+
+Push registration and device removal share a serial queue. Installation-ID creation is single-flight. Registration rechecks its session after native token/permission awaits, and sign-out removes the device after any in-flight registration. An expired retired access token may be refreshed only for the same user/organization to finish cleanup, never to restore the UI session. Failed removal is retried once and retained as non-secret cleanup metadata (no access or refresh tokens). It is retried with matching credentials before that owner next registers; another owner's token is never used to delete it. A successful registration supersedes obsolete cleanup for that same installation because the API rebinds its ownership.
+
+The sign-in screen warns when removal cannot be confirmed. Offline sign-out cannot guarantee immediate cessation of server-sent notifications without server-side cooperation; local sign-out must not claim otherwise. Already-delivered notifications are dismissed locally. Remote push lifecycle tests require standalone/development builds, not Expo Go.
+
 ## Android internal testing
 
 Build an installable standalone APK with `eas build --platform android --profile preview`. This uses the hosted HTTPS API and does not require Expo Go or Metro. It is not a Google Play submission. Production store-readiness checks remain separate.

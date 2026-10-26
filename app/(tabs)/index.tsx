@@ -36,7 +36,7 @@ function MonitorOverview() {
   const loading = down.loading && !down.data && !attention.data;
   const error = !down.data && !attention.data ? down.error ?? attention.error : null;
   const refreshing = down.refreshing || attention.refreshing;
-  const refresh = () => { void down.reload(); void attention.reload(); void refreshInbox(); };
+  const refresh = () => { void down.reload(); void attention.reload(); void refreshInbox(true); };
   useForegroundRefresh(() => { void down.refreshBackground(); void attention.refreshBackground(); void refreshInbox(); });
   const lastUpdated = down.data?.summary?.lastUpdated ?? attention.data?.summary?.lastUpdated;
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);

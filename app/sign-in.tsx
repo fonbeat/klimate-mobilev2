@@ -4,6 +4,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollVie
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError, messageOf } from '@/api';
 import { BrandLogo } from '@/brand-logo';
+import { usePushCleanupWarning } from '@/notifications';
 import { LegalLinks } from '@/legal-links-view';
 import { useSession } from '@/session';
 import { useV2Theme } from '@/theme';
@@ -11,6 +12,7 @@ import { useV2Theme } from '@/theme';
 export default function SignIn() {
   const { colors } = useV2Theme();
   const { login } = useSession();
+  const pushCleanupWarning = usePushCleanupWarning();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -32,6 +34,7 @@ export default function SignIn() {
         <View style={styles.brand}><BrandLogo width={170} /></View>
         <View style={styles.copy}><Text style={[styles.eyebrow, { color: colors.cyan }]}>YOUR ENVIRONMENT, WITH YOU</Text><Text style={[styles.title, { color: colors.ink }]}>Know what’s happening. Wherever you are.</Text><Text style={[styles.subtitle, { color: colors.muted }]}>Secure access to your enterprise monitoring from anywhere.</Text></View>
         <View style={[styles.form, { backgroundColor: colors.card }]}>
+          {!!pushCleanupWarning && <Text accessibilityLiveRegion="polite" style={[styles.error, { color: colors.attention }]}>{pushCleanupWarning}</Text>}
           <Text style={[styles.label, { color: colors.ink }]}>Work email</Text>
           <TextInput accessibilityLabel="Work email" autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={email} onChangeText={setEmail} placeholder="you@company.com" placeholderTextColor={colors.muted} style={[styles.input, { borderColor: colors.line, backgroundColor: colors.cardRaised, color: colors.ink }]} />
           <Text style={[styles.label, { color: colors.ink }]}>Password</Text>

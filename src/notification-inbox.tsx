@@ -7,6 +7,7 @@ import { Button, FilterBar, ListFooter, RefreshWarning, SectionTitle, State, use
 import { messageOf } from '@/api';
 import { useInboxBadge } from '@/inbox-badge';
 import { inboxItems } from '@/inbox-recovery';
+import { useSession } from '@/session';
 import { layout, radii, spacing, typography } from '@/tokens';
 import { useV2Theme } from '@/theme';
 import type { NotificationInboxItem, NotificationInboxPage } from '@/types';
@@ -18,6 +19,11 @@ const pageItems = (page: NotificationInboxPage) => page.records;
 const pageTotal = (page: NotificationInboxPage) => page.total;
 
 export default function NotificationInbox() {
+  const { session } = useSession();
+  return <InboxScreen key={`${session?.user.ID}:${session?.tenantId ?? ''}`} />;
+}
+
+function InboxScreen() {
   const { colors } = useV2Theme();
   const responsive = useResponsiveLayout();
   const request = useAuthenticatedRequest();
@@ -39,12 +45,17 @@ export default function NotificationInbox() {
     if (filter === 'Unread' && records.length < 8 && result.hasMore && !result.loading && !result.refreshing && !result.loadingMore && !result.error) result.loadMore();
   }, [filter, records.length, result.hasMore, result.loading, result.refreshing, result.loadingMore, result.error, result.loadMore]);
   const refresh = () => { void result.refreshVisible(); void refreshBadge(); };
-  const reload = () => { void result.reload(); void refreshBadge(); };
+  const reload = () => { void result.reload(); void refreshBadge(true); };
   const findingUnread = filter === 'Unread' && !records.length && result.hasMore && !result.error;
   useForegroundRefresh(refresh, !markingAll && !markingItem);
 
   const markRead = async (item: NotificationInboxItem) => {
     if (mutating.current) return;
+    // Navigation must not wait for read-state writes or a whole Inbox scan.
+    if (item.eventType === 'probe_offline' && item.resourceId) router.push({ pathname: '/probe/[id]', params: { id: item.resourceId } } as unknown as Href);
+    else if (item.eventType === 'monitor_down' && item.resourceId) router.push({ pathname: '/status/[view]/[id]', params: { view: 'monitors', id: item.resourceId } } as unknown as Href);
+    else if (item.eventType === 'probe_offline') router.push({ pathname: '/(tabs)/more', params: { section: 'probes' } });
+    else router.push('/(tabs)/incidents');
     if (!item.read) {
       mutating.current = true;
       setMarkingItem(true);
@@ -54,15 +65,11 @@ export default function NotificationInbox() {
         await request<void>(`/v2/notifications/${encodeURIComponent(item.id)}/read`, { method: 'PATCH', body: '{}' });
         result.setRecords((records) => filter === 'Unread' ? records.filter((record) => record.id !== item.id) : records.map((record) => record.id === item.id ? { ...record, read: true } : record));
         recordRead(item.id);
-        await result.refreshVisible();
-        await refreshBadge();
+        void result.refreshVisible();
+        void refreshBadge();
       } catch (error) { setActionError(messageOf(error)); return; }
       finally { mutating.current = false; setMarkingItem(false); }
     }
-    if (item.eventType === 'probe_offline' && item.resourceId) router.push({ pathname: '/probe/[id]', params: { id: item.resourceId } } as unknown as Href);
-    else if (item.eventType === 'monitor_down' && item.resourceId) router.push({ pathname: '/status/[view]/[id]', params: { view: 'monitors', id: item.resourceId } } as unknown as Href);
-    else if (item.eventType === 'probe_offline') router.push({ pathname: '/(tabs)/more', params: { section: 'probes' } });
-    else router.push('/(tabs)/incidents');
   };
 
   const markAllRead = async () => {
