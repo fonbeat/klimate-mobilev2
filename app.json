@@ -1,28 +1,70 @@
 {
   "expo": {
     "name": "Klimate",
-    "slug": "klimate-mobile",
-    "version": "0.1.0",
+    "slug": "klimate",
+    "platforms": ["ios", "android"],
+    "version": "2026.10.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "scheme": "klimate",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.klimate.mobile",
-      "buildNumber": "1",
-      "config": { "usesNonExemptEncryption": false }
+      "buildNumber": "2026.10.1",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "app.klimate.mobile",
-      "versionCode": 1,
-      "adaptiveIcon": { "backgroundColor": "#071a2d" },
-      "permissions": ["POST_NOTIFICATIONS"]
+      "googleServicesFile": "./google-services.json",
+      "versionCode": 20261001,
+      "adaptiveIcon": {
+        "backgroundColor": "#071a2d"
+      },
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "VIBRATE"
+      ]
     },
     "plugins": [
       "expo-router",
-      ["expo-secure-store", { "configureAndroidBackup": true }],
-      ["expo-notifications", { "defaultChannel": "incidents" }]
+      "expo-splash-screen",
+      "expo-status-bar",
+      "expo-font",
+      "expo-asset",
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "incidents"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ]
     ],
-    "experiments": { "typedRoutes": true }
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "cb5632fc-61d6-4928-b97c-1922e64cefe1"
+      }
+    },
+    "owner": "fonbeat"
   }
 }

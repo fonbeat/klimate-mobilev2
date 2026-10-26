@@ -1,4 +1,4 @@
-import { useColorScheme } from 'react-native';
+import { useAppearance } from './appearance';
 import { statusTone, type StatusDomain, type StatusTone } from './status';
 import { darkColors, lightColors, type V2Colors } from './tokens';
 
@@ -18,8 +18,8 @@ export function statusColor(status?: string, domain: StatusDomain = 'monitor', p
 }
 
 export function useV2Theme() {
-  const scheme = useColorScheme();
-  return { colors: scheme === 'light' ? lightColors : darkColors, scheme: scheme === 'light' ? 'light' as const : 'dark' as const };
+  const { scheme } = useAppearance();
+  return { colors: scheme === 'light' ? lightColors : darkColors, scheme };
 }
 
 export type { StatusDomain, StatusTone } from './status';

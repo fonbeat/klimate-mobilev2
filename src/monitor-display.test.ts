@@ -65,3 +65,15 @@ test('does not treat SNMP response latency as an uptime duration', () => {
     liveMetric: { kind: 'snmp_response_time', value: 18, unit: 'ms' },
   }), '18 ms');
 });
+
+test('PATH cards prioritize packet loss and the backend primary metric over hop counts', () => {
+  assert.equal(monitorMeasurement({ type: 'PATH', path: { hopCount: 8, latencyMs: 12, packetLossPercent: 30 } }), '30% loss');
+  assert.equal(monitorMeasurement({ type: 'PATH', path: { hopCount: 8, latencyMs: 12 }, liveMetric: { value: 30, label: '8 hops · 30% loss' } }), '8 hops · 30% loss');
+});
+
+test('server and syslog cards show telemetry results and unknown cards hide historical values', () => {
+  assert.equal(monitorMeasurement({ type: 'SERVER', liveMetric: { label: 'Host telemetry reporting', value: null } }), 'Host telemetry reporting');
+  assert.equal(monitorMeasurement({ type: 'SYSLOG', liveMetric: { label: '25 events/s', value: 25 } }), '25 events/s');
+  assert.equal(monitorMeasurement({ type: 'SNMP', status: 'Unknown', liveMetric: { kind: 'interface_throughput', value: 1_000_000, unit: 'bps' } }), 'No recent data');
+  assert.equal(monitorMeasurement({ type: 'FLOW', flow: { throughputBps: 1500 } }), '1.5 Kbps');
+});

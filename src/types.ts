@@ -54,9 +54,13 @@ export type NotificationInboxPage = {
 
 export type LoginChallenge = {
   user: SessionUser;
-  verificationToken: string;
-  verificationExpiresAt?: string;
-  resendAvailableAt?: string;
+  tenantId?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  mfaRequired?: boolean;
+  mfaEnrollmentRequired?: boolean;
+  mfaChallengeToken?: string;
+  mfaChallengeExpiresAt?: string;
 };
 
 export type StatusSummary = {
@@ -86,14 +90,36 @@ export type Monitor = {
   tags: string[];
   liveMetric?: { kind: string; label: string; value: number | null; unit?: string };
   path?: { hopCount?: number | null; latencyMs?: number | null; packetLossPercent?: number | null };
-  snmp?: { healthMetric?: { key: string; label: string; severity: string; value: number | null; unit: string } | null };
-  flow?: { throughputBps?: number | null; flowsPerSecond?: number | null };
+  snmp?: { endpointID?: string; healthMetric?: { key: string; label: string; severity: string; value: number | null; unit: string } | null };
+  flow?: { exporterID?: string; throughputBps?: number | null; flowsPerSecond?: number | null };
+  syslog?: { sourceID: string };
+  lastCheckedAt?: string | null;
 };
 
-export type MonitorPage = { offset: number; limit: number; total: number; records: Monitor[] };
+export type MonitorPage = { offset: number; limit: number; total: number; records: Monitor[]; summary?: StatusSummary };
+
+export type TargetStatus = {
+  ID: string; targetID: string; label: string; address: string; status: string;
+  statusMessage: string; monitorCount: number; affectedCount: number;
+  tags: string[]; probe?: { name?: string }; monitors?: Monitor[];
+};
+export type TargetStatusPage = { offset: number; limit: number; total: number; records: TargetStatus[]; summary?: { totalTargets: number; healthyTargets: number; affectedTargets: number; downTargets: number; unknownTargets: number } };
+
+export type ServiceStatus = {
+  ID: string; serviceID: string; label: string; status: string;
+  statusMessage: string; monitoringLimited: boolean; customerImpact: string;
+  probableCause: string; metric: { kind: string; caption: string; label: string; value?: number | null; coverage?: AvailabilityCoverage };
+};
+export type ServiceStatusPage = { lastUpdated?: string; offset: number; limit: number; total: number; records: ServiceStatus[]; summary?: { totalServices: number; healthyServices: number; degradedServices: number; downServices: number; unknownServices: number } };
 
 export type Incident = {
   id: string;
+  kind?: 'monitor' | 'service' | 'probe' | 'apm';
+  applicationId?: string | null;
+  serviceID?: string;
+  serviceName?: string;
+  probeID?: string;
+  severity?: string;
   status: string;
   targetID: string;
   monitorID: string;
@@ -132,6 +158,7 @@ export type Probe = {
   id: string;
   status: string;
   name: string;
+  hostname?: string;
   location: string;
   lastSeen: string;
   privateIp: string;
@@ -141,3 +168,6 @@ export type Probe = {
   software: { installedVersion: string; state: string; statusMessage: string };
 };
 export type ProbeView = { generatedAt: string; probes: Probe[]; total: number; offset: number; limit: number };
+
+export type AvailabilityCoverage = { percent: number; knownSeconds: number; unknownSeconds: number };
+export type OrganizationModules = { modules: { key: string; name: string; enabled: boolean; available: boolean }[] };

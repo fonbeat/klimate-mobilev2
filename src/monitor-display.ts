@@ -1,25 +1,26 @@
 type MonitorDisplayInput = {
   type: string;
+  status?: string;
   monitorLabel?: string;
   displayName?: string;
   host?: string;
   rtt?: string;
   lastChecked?: string;
   liveMetric?: { kind?: string; label?: string; value: number | null; unit?: string };
-  path?: { hopCount?: number | null; latencyMs?: number | null };
+  path?: { hopCount?: number | null; latencyMs?: number | null; packetLossPercent?: number | null };
   snmp?: { healthMetric?: { key?: string; label?: string; value: number | null; unit?: string } | null };
   flow?: { throughputBps?: number | null; flowsPerSecond?: number | null };
 };
 
 const number = (value: number) => new Intl.NumberFormat(undefined, { maximumFractionDigits: value >= 100 ? 0 : 1 }).format(value);
 const metric = (value: number | null | undefined, unit?: string) => value == null ? null : `${number(value)}${unit ? ` ${unit}` : ''}`;
-const bitsPerSecond = (value: number) => {
+export const bitsPerSecond = (value: number) => {
   if (value >= 1_000_000_000) return `${number(value / 1_000_000_000)} Gbps`;
   if (value >= 1_000_000) return `${number(value / 1_000_000)} Mbps`;
   if (value >= 1_000) return `${number(value / 1_000)} Kbps`;
   return `${number(value)} bps`;
 };
-const readableDuration = (secondsValue: number) => {
+export const readableDuration = (secondsValue: number) => {
   const seconds = Math.max(0, Math.floor(secondsValue));
   const days = Math.floor(seconds / 86_400);
   const hours = Math.floor((seconds % 86_400) / 3_600);
@@ -58,6 +59,7 @@ export function monitorProtocolLabel(monitor: MonitorDisplayInput) {
 
 export function monitorMeasurement(monitor: MonitorDisplayInput) {
   const type = monitor.type.trim().toUpperCase();
+  if (monitor.status?.toLowerCase() === 'unknown') return 'No recent data';
   if (type === 'SNMP') {
     const live = monitor.liveMetric;
     if (live?.value != null && (live.kind === 'interface_throughput' || live.unit?.toLowerCase() === 'bps')) {
@@ -72,12 +74,15 @@ export function monitorMeasurement(monitor: MonitorDisplayInput) {
   }
   if (type === 'FLOW') {
     const throughput = monitor.flow?.throughputBps;
-    if (throughput != null) return `${number(throughput / 1_000_000)} Mbps`;
+    if (monitor.liveMetric?.label) return monitor.liveMetric.label;
+    if (throughput != null) return bitsPerSecond(throughput);
     return metric(monitor.flow?.flowsPerSecond, 'flows/s') ?? 'No data';
   }
+  if (type === 'PATH' && monitor.liveMetric?.label) return monitor.liveMetric.label;
+  if (type === 'PATH' && monitor.path?.packetLossPercent != null && monitor.path.packetLossPercent > 0) return `${number(monitor.path.packetLossPercent)}% loss`;
   if (type === 'PATH' && monitor.path?.hopCount != null) {
     const latency = monitor.path.latencyMs == null ? '' : ` · ${number(monitor.path.latencyMs)} ms`;
     return `${monitor.path.hopCount} hops${latency}`;
   }
-  return monitor.rtt || monitor.lastChecked || 'No data';
+  return monitor.liveMetric?.label || monitor.rtt || monitor.lastChecked || 'No data';
 }

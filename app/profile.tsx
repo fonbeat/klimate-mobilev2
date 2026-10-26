@@ -2,18 +2,22 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button, Page, State } from '@/components';
+import { Button, FilterBar, Page, State } from '@/components';
+import { useAlertSounds } from '@/alert-sounds';
+import type { AlertSound, AlertSoundPreferences } from '@/alert-sound-controller';
 import { messageOf } from '@/api';
-import { requestPushNotifications } from '@/notifications';
+import { PhoneNotifications } from '@/phone-notifications';
+import { LegalLinks } from '@/legal-links-view';
 import { useSession } from '@/session';
 import { radii, spacing, typography } from '@/tokens';
 import { useV2Theme } from '@/theme';
-import type { OrganizationRole, PushPreferences, SessionOrganizations } from '@/types';
-import { useApiData, useAuthenticatedRequest } from '@/use-api';
+import { useAppearance, type Appearance } from '@/appearance';
+import type { OrganizationRole, SessionOrganizations } from '@/types';
+import { useApiData } from '@/use-api';
 
-type Panel = 'organization' | 'notifications' | null;
+type Panel = 'organization' | 'alerts' | null;
 
 function organizationRoleLabel(role: OrganizationRole) {
   if (role === 'owner') return 'Owner';
@@ -22,28 +26,25 @@ function organizationRoleLabel(role: OrganizationRole) {
 }
 
 export default function Profile() {
-  const { colors, scheme } = useV2Theme();
+  const { colors } = useV2Theme();
+  const { appearance, setAppearance } = useAppearance();
+  const sounds = useAlertSounds();
+  const [soundBusy, setSoundBusy] = useState(false);
+  const [soundMessage, setSoundMessage] = useState('');
+  const [testSound, setTestSound] = useState<AlertSound>('monitorDown');
   const { session, signOut, switchOrganization } = useSession();
-  const request = useAuthenticatedRequest();
   const [panel, setPanel] = useState<Panel>(null);
   const [switchingId, setSwitchingId] = useState('');
   const [organizationError, setOrganizationError] = useState('');
-  const [preferenceBusy, setPreferenceBusy] = useState<keyof PushPreferences | null>(null);
-  const [notificationBusy, setNotificationBusy] = useState(false);
-  const [notificationMessage, setNotificationMessage] = useState('');
   const organizations = useApiData<SessionOrganizations>('/v2/sessions/organizations');
-  const preferences = useApiData<PushPreferences>('/v2/push/preferences', panel === 'notifications');
   const currentOrganization = useMemo(() => organizations.data?.organizations.find((item) => item.isCurrent || item.tenantId === session?.tenantId), [organizations.data, session?.tenantId]);
   const initials = `${session?.user.firstname?.[0] ?? ''}${session?.user.lastname?.[0] ?? ''}`;
 
-  const savePreference = async (key: keyof PushPreferences, value: boolean) => {
-    if (!preferences.data || preferenceBusy) return;
-    setPreferenceBusy(key); setNotificationMessage('');
-    try {
-      const saved = await request<PushPreferences>('/v2/push/preferences', { method: 'PATCH', body: JSON.stringify({ ...preferences.data, [key]: value }) });
-      preferences.setData(saved);
-    } catch (error) { setNotificationMessage(messageOf(error)); }
-    finally { setPreferenceBusy(null); }
+  const saveSound = async (sound: keyof AlertSoundPreferences, enabled: boolean) => {
+    setSoundBusy(true); setSoundMessage('');
+    try { await sounds.setPreference(sound, enabled); }
+    catch { setSoundMessage('Couldn’t save the alert setting. Please try again.'); }
+    finally { setSoundBusy(false); }
   };
 
   return <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><Page refreshing={organizations.refreshing} onRefresh={organizations.reload}>
@@ -63,7 +64,7 @@ export default function Profile() {
     <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.line }]}>
       <SettingsRow icon="business-outline" label="Organization" value={currentOrganization?.name ?? 'Choose organization'} expanded={panel === 'organization'} onPress={() => setPanel(panel === 'organization' ? null : 'organization')} />
       {panel === 'organization' && <View style={[styles.panel, { borderTopColor: colors.line }]}>
-        <State compact loading={organizations.loading} error={organizations.error} onRetry={organizations.reload} />
+        <State compact loading={organizations.loading} loadingMessage="Loading organizations…" error={organizations.error} onRetry={organizations.reload} />
         {organizations.data?.organizations.map((organization) => {
           const current = organization.isCurrent || organization.tenantId === session?.tenantId;
           const switching = switchingId === organization.tenantId;
@@ -74,22 +75,41 @@ export default function Profile() {
         })}
         {!!organizationError && <Text accessibilityLiveRegion="assertive" style={[styles.message, { color: colors.down }]}>{organizationError}</Text>}
       </View>}
-      <View style={[styles.separator, { backgroundColor: colors.line }]} />
-      <SettingsRow icon="notifications-outline" label="Notifications" value="Operational alerts" expanded={panel === 'notifications'} onPress={() => setPanel(panel === 'notifications' ? null : 'notifications')} />
-      {panel === 'notifications' && <View style={[styles.panel, { borderTopColor: colors.line }]}>
-        <State compact loading={preferences.loading} error={preferences.error} onRetry={preferences.reload} />
-        {preferences.data && <><PreferenceRow label="Monitor goes down" detail="After the outage debounce window" value={preferences.data.monitorDown} disabled={!!preferenceBusy} onChange={(value) => void savePreference('monitorDown', value)} /><View style={[styles.insetSeparator, { backgroundColor: colors.line }]} /><PreferenceRow label="Probe goes offline" detail="After missed heartbeats are confirmed" value={preferences.data.probeOffline} disabled={!!preferenceBusy} onChange={(value) => void savePreference('probeOffline', value)} /></>}
-        <View style={styles.enableButton}><Button label="Enable notifications" variant="secondary" icon="notifications-outline" busy={notificationBusy} disabled={!session?.accessToken} onPress={() => void (async () => { if (!session?.accessToken) return; setNotificationBusy(true); setNotificationMessage(''); try { const result = await requestPushNotifications(session.accessToken); setNotificationMessage(result === 'registered' ? 'Notifications are enabled.' : result === 'denied' ? 'Notifications remain disabled in system settings.' : 'Push notifications are unavailable on this device.'); } catch (error) { setNotificationMessage(messageOf(error)); } finally { setNotificationBusy(false); } })()} /></View>
-        {!!notificationMessage && <Text accessibilityLiveRegion="polite" style={[styles.message, { color: colors.muted }]}>{notificationMessage}</Text>}
-      </View>}
     </View>
 
     <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.line }]}>
-      <SettingsRow icon="contrast-outline" label="Appearance" value={scheme === 'dark' ? 'Dark · follows device' : 'Light · follows device'} />
+      <SettingsRow icon="notifications-outline" label="Alerts" value="Phone notifications, sounds & vibration" expanded={panel === 'alerts'} onPress={() => setPanel(panel === 'alerts' ? null : 'alerts')} />
+      {panel === 'alerts' && <View style={[styles.panel, { borderTopColor: colors.line }]}>
+        <PhoneNotifications key={`${session?.user.ID}:${session?.tenantId ?? ''}`} />
+        <View style={[styles.insetSeparator, { backgroundColor: colors.line }]} />
+        <Text accessibilityRole="header" style={[styles.optionTitle, { color: colors.ink }]}>While using the app</Text>
+        <Text style={[styles.message, { color: colors.muted }]}>These controls only change foreground sounds and vibration—not push alerts. Preferences are saved for your account on this phone.</Text>
+        <PreferenceRow label="Monitor-down sound" detail="A short two-note chime" value={sounds.preferences.monitorDown} disabled={sounds.loading || soundBusy} onChange={(enabled) => void saveSound('monitorDown', enabled)} />
+        <View style={[styles.insetSeparator, { backgroundColor: colors.line }]} />
+        <PreferenceRow label="Gateway-offline sound" detail="A distinct, lower two-note chime" value={sounds.preferences.probeDown} disabled={sounds.loading || soundBusy} onChange={(enabled) => void saveSound('probeDown', enabled)} />
+        <View style={[styles.insetSeparator, { backgroundColor: colors.line }]} />
+        <PreferenceRow label="Vibrate on alerts" detail="For each new outage, even with sounds off. Subject to your phone’s vibration settings." value={sounds.preferences.vibrate} disabled={sounds.loading || soundBusy} onChange={(enabled) => void saveSound('vibrate', enabled)} />
+        <FilterBar options={['Monitor', 'Gateway']} value={testSound === 'monitorDown' ? 'Monitor' : 'Gateway'} onChange={(label) => setTestSound(label === 'Monitor' ? 'monitorDown' : 'probeDown')} label="Sound to preview" />
+        <Button label="Test sound" variant="secondary" icon="play-outline" disabled={sounds.loading || !sounds.ready || soundBusy} busy={soundBusy} onPress={() => void (async () => {
+          setSoundBusy(true); setSoundMessage('');
+          try { await sounds.testSound(testSound); setSoundMessage('Test sound played. If you didn’t hear it, check silent mode, volume, and connected headphones.'); }
+          catch (error) { setSoundMessage(messageOf(error)); }
+          finally { setSoundBusy(false); }
+        })()} />
+        <Button label="Test vibration" variant="secondary" icon="phone-portrait-outline" disabled={sounds.loading || soundBusy} onPress={() => {
+          setSoundMessage('');
+          try { sounds.testVibration(); setSoundMessage('Vibration test requested. If you didn’t feel it, check your phone’s vibration settings.'); }
+          catch (error) { setSoundMessage(messageOf(error)); }
+        }} />
+        {!!soundMessage && <Text accessibilityLiveRegion="polite" style={[styles.message, { color: colors.muted }]}>{soundMessage}</Text>}
+      </View>}
       <View style={[styles.separator, { backgroundColor: colors.line }]} />
-      <SettingsRow icon="information-circle-outline" label="About Klimate" value={`Version ${Constants.expoConfig?.version ?? '0.1.0'}`} />
+      <AppearanceRow appearance={appearance} onChange={setAppearance} />
+      <View style={[styles.separator, { backgroundColor: colors.line }]} />
+      <SettingsRow icon="information-circle-outline" label="About Klimate Mobile" value={`Version ${Constants.expoConfig?.version ?? 'Unavailable'}`} />
     </View>
 
+    <LegalLinks />
     <Pressable accessibilityRole="button" onPress={() => void signOut()} style={({ pressed }) => [styles.signOut, { backgroundColor: colors.card, borderColor: colors.line }, pressed && styles.pressed]}><Ionicons name="log-out-outline" size={20} color={colors.down} /><Text style={[styles.signOutText, { color: colors.down }]}>Sign out</Text></Pressable>
   </Page></SafeAreaView>;
 }
@@ -101,6 +121,21 @@ function SettingsRow({ icon, label, value, expanded, onPress }: { icon: keyof ty
   return <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={onPress} style={({ pressed }) => [styles.settingsRow, pressed && styles.pressed]}>{content}</Pressable>;
 }
 
+function AppearanceRow({ appearance, onChange }: { appearance: Appearance; onChange: (value: Appearance) => void }) {
+  const { colors } = useV2Theme();
+  const { width, fontScale } = useWindowDimensions();
+  const narrow = width < 410 || fontScale > 1.15;
+  return <View style={[styles.appearanceRow, narrow && styles.appearanceRowNarrow]}>
+    <View style={styles.appearanceLabel}><View style={[styles.rowIcon, { backgroundColor: colors.cardRaised }]}><Ionicons name="contrast-outline" size={18} color={colors.blue} /></View><Text style={[styles.rowLabel, { color: colors.ink }]}>Appearance</Text></View>
+    <View accessibilityRole="radiogroup" accessibilityLabel="Appearance" style={[styles.appearanceControl, narrow && styles.appearanceControlNarrow, { backgroundColor: colors.cardRaised, borderColor: colors.line }]}>
+      {(['light', 'dark', 'system'] as Appearance[]).map((option) => {
+        const selected = appearance === option;
+        return <Pressable key={option} accessibilityRole="radio" accessibilityState={{ checked: selected }} accessibilityLabel={`${option[0].toUpperCase()}${option.slice(1)} appearance`} onPress={() => onChange(option)} style={({ pressed }) => [styles.appearanceSegment, { backgroundColor: selected ? colors.navy : 'transparent' }, pressed && styles.pressed]}><Text style={[styles.appearanceSegmentText, { color: selected ? colors.onStatus : colors.muted }]}>{option[0].toUpperCase()}{option.slice(1)}</Text></Pressable>;
+      })}
+    </View>
+  </View>;
+}
+
 function PreferenceRow({ label, detail, value, disabled, onChange }: { label: string; detail: string; value: boolean; disabled: boolean; onChange: (value: boolean) => void }) {
   const { colors } = useV2Theme();
   return <View style={styles.preferenceRow}><View style={styles.flex}><Text style={[styles.optionTitle, { color: colors.ink }]}>{label}</Text><Text style={[styles.optionMeta, { color: colors.muted }]}>{detail}</Text></View><Switch accessibilityLabel={label} value={value} disabled={disabled} onValueChange={onChange} trackColor={{ false: colors.line, true: colors.blue }} thumbColor={colors.card} /></View>;
@@ -109,8 +144,8 @@ function PreferenceRow({ label, detail, value, disabled, onChange }: { label: st
 const styles = StyleSheet.create({
   navigation: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   navigationTitle: typography.sectionTitle,
-  navigationSpacer: { width: 44 },
-  close: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  navigationSpacer: { width: 48 },
+  close: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   identity: { alignItems: 'center', paddingVertical: spacing.xxl },
   profileAvatar: { width: 82, height: 82, borderRadius: 41, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   profileInitials: { fontSize: 27, lineHeight: 34, fontWeight: '700' },
@@ -118,8 +153,15 @@ const styles = StyleSheet.create({
   email: { ...typography.body, marginTop: spacing.xs, textAlign: 'center' },
   organizationPill: { minHeight: 30, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.md, paddingHorizontal: spacing.md, borderRadius: radii.round },
   organizationPillText: typography.metadata,
-  group: { borderRadius: radii.xl, borderWidth: 1, overflow: 'hidden' },
+  group: { borderRadius: radii.xl, overflow: 'hidden' },
   settingsRow: { minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg },
+  appearanceRow: { minHeight: 70, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+  appearanceRowNarrow: { flexWrap: 'wrap' },
+  appearanceLabel: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  appearanceControl: { flexDirection: 'row', width: 188, padding: 3, borderRadius: radii.md, borderWidth: 1 },
+  appearanceControlNarrow: { width: '100%' },
+  appearanceSegment: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radii.sm },
+  appearanceSegmentText: { fontSize: 12, fontWeight: '700' },
   rowIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   rowLabel: typography.cardTitle,
   rowValue: { ...typography.metadata, marginTop: 2 },
@@ -130,9 +172,8 @@ const styles = StyleSheet.create({
   optionMeta: { ...typography.metadata, marginTop: 2, textTransform: 'capitalize' },
   preferenceRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   insetSeparator: { height: StyleSheet.hairlineWidth },
-  enableButton: { marginTop: spacing.sm },
   message: typography.metadata,
-  signOut: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, borderWidth: 1, borderRadius: radii.xl },
+  signOut: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, borderRadius: radii.xl },
   signOutText: { ...typography.body, fontWeight: '700' },
   flex: { flex: 1 },
   pressed: { opacity: .7 },

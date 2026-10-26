@@ -1,1 +1,1 @@
-export { default } from './(tabs)/notifications';
+export { default } from '@/notification-inbox';

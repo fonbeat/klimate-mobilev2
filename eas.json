@@ -1,9 +1,14 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "cli": { "version": ">= 16.0.0", "appVersionSource": "local" },
   "build": {
     "development": { "developmentClient": true, "distribution": "internal" },
-    "preview": { "distribution": "internal" },
-    "production": { "autoIncrement": true }
+    "preview": {
+      "distribution": "internal",
+      "environment": "preview",
+      "android": { "buildType": "apk" },
+      "env": { "EXPO_PUBLIC_API_URL": "https://web-api.klimate.app" }
+    },
+    "production": { "autoIncrement": false, "env": { "KLIMATE_STORE_BUILD": "1" } }
   },
   "submit": { "production": {} }
 }

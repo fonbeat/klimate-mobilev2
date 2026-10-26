@@ -7,6 +7,7 @@ import {
 import { colorForTone, statusColor, useV2Theme, type StatusDomain, type StatusTone } from './theme';
 import { controlHeights, layout, radii, spacing, typography } from './tokens';
 import { resolveScreenState } from './screen-state';
+import { displayMetric } from './metric-display';
 
 export function useResponsiveLayout() {
   const { width } = useWindowDimensions();
@@ -27,7 +28,7 @@ export function Page({ children, refreshing = false, onRefresh }: PropsWithChild
 export function PageTitle({ eyebrow, title, detail }: { eyebrow: string; title: string; detail: string }) {
   const { colors } = useV2Theme();
   return <View style={styles.heading} accessibilityRole="header">
-    <Text style={[styles.eyebrow, { color: colors.blue }]}>{eyebrow}</Text>
+    {!!eyebrow && <Text style={[styles.eyebrow, { color: colors.blue }]}>{eyebrow}</Text>}
     <Text style={[styles.title, { color: colors.ink }]}>{title}</Text>
     <Text style={[styles.detail, { color: colors.muted }]}>{detail}</Text>
   </View>;
@@ -35,7 +36,13 @@ export function PageTitle({ eyebrow, title, detail }: { eyebrow: string; title: 
 
 export function Card({ children, style, accessibilityLabel }: PropsWithChildren<{ style?: StyleProp<ViewStyle>; accessibilityLabel?: string }>) {
   const { colors } = useV2Theme();
-  return <View accessibilityLabel={accessibilityLabel} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.line }, style]}>{children}</View>;
+  return <View accessibilityLabel={accessibilityLabel} style={[styles.card, { backgroundColor: colors.card }, style]}>{children}</View>;
+}
+
+export function RefreshWarning({ error }: { error: string | null }) {
+  const { colors } = useV2Theme();
+  if (!error) return null;
+  return <Card><Text accessibilityLiveRegion="polite" style={[typography.metadata, { color: colors.attention }]}>Couldn’t refresh. Showing the last available data. {error}</Text></Card>;
 }
 
 export function Button({ label, onPress, icon, busy = false, disabled = false, variant = 'primary' }: { label: string; onPress: () => void; icon?: keyof typeof Ionicons.glyphMap; busy?: boolean; disabled?: boolean; variant?: 'primary' | 'secondary' | 'danger' }) {
@@ -70,26 +77,28 @@ export function StatusIndicator({ status, domain = 'monitor', label, size = 12 }
 export function StatusPill({ status, domain = 'monitor' }: { status: string; domain?: StatusDomain }) {
   const { colors } = useV2Theme();
   const color = statusColor(status, domain, colors);
-  return <View accessibilityLabel={`Status: ${status || 'Unknown'}`} style={[styles.pill, { backgroundColor: `${color}18` }]}>
+  return <View accessibilityLabel={`Status: ${status || 'Unknown'}`} style={[styles.pill, { backgroundColor: colors.cardRaised }]}>
     <View style={[styles.dot, { backgroundColor: color }]} />
-    <Text style={[styles.pillText, { color }]}>{status || 'Unknown'}</Text>
+    <Text style={[styles.pillText, { color: colors.ink }]}>{status || 'Unknown'}</Text>
   </View>;
 }
 
 export type SummaryMetric = { label: string; value: string | number; tone?: StatusTone };
 export function SummaryStrip({ items }: { items: SummaryMetric[] }) {
   const { colors } = useV2Theme();
-  return <View style={[styles.summaryStrip, { backgroundColor: colors.card, borderColor: colors.line }]}>
-    {items.map((item, index) => <View key={item.label} style={[styles.summaryMetric, index > 0 && { borderLeftWidth: 1, borderLeftColor: colors.line }]}>
-      <Text style={[styles.summaryLabel, { color: colors.muted }]}>{item.label}</Text>
-      <Text style={[styles.summaryValue, { color: item.tone ? colorForTone(item.tone, colors) : colors.ink }]}>{item.value}</Text>
+  const { width, fontScale } = useWindowDimensions();
+  const columns = fontScale > 1.2 || (items.length > 3 && width < 430) ? 2 : items.length;
+  return <View style={[styles.summaryStrip, { backgroundColor: colors.card }]}>
+    {items.map((item, index) => <View key={item.label} accessible accessibilityLabel={`${item.label}: ${displayMetric(item.value)}`} style={[styles.summaryMetric, { width: columns === 1 ? '100%' : columns === 2 ? index === items.length - 1 && items.length % 2 === 1 ? '100%' : '50%' : columns === 3 ? '33.3333%' : '25%' }, index % columns > 0 && { borderLeftWidth: 1, borderLeftColor: colors.line }, index >= columns && { borderTopWidth: 1, borderTopColor: colors.line }]}>
+      <View style={styles.summaryLabelRow}>{item.tone && <View style={[styles.summaryDot, { backgroundColor: colorForTone(item.tone, colors) }]} />}<Text style={[styles.summaryLabel, { color: colors.muted }]}>{item.label}</Text></View>
+      <Text style={[styles.summaryValue, { color: colors.ink }]}>{displayMetric(item.value)}</Text>
     </View>)}
   </View>;
 }
 
 export function SearchField({ value, onChangeText, placeholder }: { value: string; onChangeText: (value: string) => void; placeholder: string }) {
   const { colors } = useV2Theme();
-  return <View style={[styles.search, { backgroundColor: colors.card, borderColor: colors.line }]}>
+  return <View style={[styles.search, { backgroundColor: colors.card }]}>
     <Ionicons name="search" size={18} color={colors.muted} importantForAccessibility="no" />
     <TextInput
       accessibilityLabel={placeholder}
@@ -103,7 +112,7 @@ export function SearchField({ value, onChangeText, placeholder }: { value: strin
   </View>;
 }
 
-export function FilterBar({ options, value, onChange, label = 'Filter' }: { options: string[]; value: string; onChange: (value: string) => void; label?: string }) {
+export function FilterBar({ options, value, onChange, label = 'Filter', counts }: { options: string[]; value: string; onChange: (value: string) => void; label?: string; counts?: Record<string, number> }) {
   const { colors } = useV2Theme();
   return <View accessibilityLabel={label} accessibilityRole="tablist" style={styles.filters}>
     {options.map((option) => {
@@ -112,9 +121,10 @@ export function FilterBar({ options, value, onChange, label = 'Filter' }: { opti
         key={option}
         accessibilityRole="tab"
         accessibilityState={{ selected }}
+        accessibilityLabel={counts?.[option] == null ? option : `${option}, ${counts[option]} ${counts[option] === 1 ? 'item' : 'items'}`}
         onPress={() => onChange(option)}
-        style={({ pressed }) => [styles.filter, { backgroundColor: selected ? colors.cardRaised : colors.card, borderColor: selected ? colors.navy : colors.line }, pressed && styles.pressed]}
-      ><Text style={[styles.filterText, { color: selected ? colors.ink : colors.muted }]}>{option}</Text></Pressable>;
+        style={({ pressed }) => [styles.filter, { backgroundColor: selected ? colors.selection : colors.card }, pressed && styles.pressed]}
+      ><Text style={[styles.filterText, { color: selected ? colors.blue : colors.muted }]}>{option}</Text>{(counts?.[option] ?? 0) > 0 && <View style={[styles.filterCount, { backgroundColor: selected ? colors.card : colors.cardRaised }]}><Text style={[styles.filterCountText, { color: selected ? colors.blue : colors.muted }]}>{counts?.[option]}</Text></View>}</Pressable>;
     })}
   </View>;
 }
@@ -124,10 +134,10 @@ export function SectionTitle({ children, action }: { children: ReactNode; action
   return <View style={styles.sectionHeading}><Text accessibilityRole="header" style={[styles.sectionTitle, { color: colors.ink }]}>{children}</Text>{action}</View>;
 }
 
-export function State({ loading, error, empty, onRetry, compact = false }: { loading?: boolean; error?: string | null; empty?: string; onRetry?: () => void; compact?: boolean }) {
+export function State({ loading, error, empty, onRetry, compact = false, loadingMessage = 'Loading…' }: { loading?: boolean; error?: string | null; empty?: string; onRetry?: () => void; compact?: boolean; loadingMessage?: string }) {
   const { colors } = useV2Theme();
   const state = resolveScreenState({ loading, error, empty });
-  if (state === 'loading') return <View style={[styles.state, compact && styles.stateCompact]} accessibilityLiveRegion="polite"><ActivityIndicator color={colors.navy} /><Text style={[styles.stateText, { color: colors.muted }]}>Checking your environment…</Text></View>;
+  if (state === 'loading') return <View style={[styles.state, compact && styles.stateCompact]} accessibilityLiveRegion="polite"><ActivityIndicator color={colors.navy} /><Text style={[styles.stateText, { color: colors.muted }]}>{loadingMessage}</Text></View>;
   if (state === 'error') return <View style={[styles.state, compact && styles.stateCompact]} accessibilityLiveRegion="assertive"><Ionicons name="cloud-offline-outline" size={28} color={colors.down} /><Text style={[styles.stateTitle, { color: colors.ink }]}>Couldn’t refresh Klimate</Text><Text style={[styles.stateText, { color: colors.muted }]}>{error}</Text>{onRetry && <Pressable accessibilityRole="button" onPress={onRetry} style={[styles.retry, { borderColor: colors.line }]}><Text style={[styles.retryText, { color: colors.blue }]}>Try again</Text></Pressable>}</View>;
   if (state === 'empty') return <View style={[styles.state, compact && styles.stateCompact]}><Ionicons name="checkmark-circle-outline" size={30} color={colors.up} /><Text style={[styles.stateTitle, { color: colors.ink }]}>{empty}</Text></View>;
   return null;
@@ -148,29 +158,33 @@ export const shared = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  pageContent: { width: '100%', maxWidth: layout.contentMaxWidth, alignSelf: 'center', paddingTop: spacing.sm, paddingBottom: 42, gap: spacing.md },
-  heading: { paddingVertical: spacing.md, gap: spacing.xs },
+  pageContent: { width: '100%', maxWidth: layout.contentMaxWidth, alignSelf: 'center', paddingTop: spacing.md, paddingBottom: 42, gap: spacing.lg },
+  heading: { paddingTop: spacing.sm, paddingBottom: spacing.xs, gap: spacing.xs },
   eyebrow: typography.eyebrow,
   title: typography.pageTitle,
   detail: typography.body,
-  card: { borderWidth: 1, borderRadius: radii.lg, padding: spacing.lg },
+  card: { borderRadius: radii.md, padding: spacing.lg },
   button: { minHeight: controlHeights.standard, borderWidth: 1, borderRadius: radii.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingHorizontal: spacing.lg },
   buttonText: { ...typography.body, fontWeight: '600' },
   iconButton: { width: controlHeights.standard, height: controlHeights.standard, borderWidth: 1, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: .55 },
   statusIndicator: { flexShrink: 0 },
-  pill: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: 10, minHeight: 32, borderRadius: radii.round },
-  dot: { width: 7, height: 7, borderRadius: 7 },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: 10, minHeight: 32, borderRadius: radii.round, flexShrink: 1 },
+  dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
   pillText: { ...typography.metadata, fontWeight: '700', textTransform: 'capitalize' },
-  summaryStrip: { flexDirection: 'row', borderWidth: 1, borderRadius: radii.lg, overflow: 'hidden' },
-  summaryMetric: { flex: 1, minHeight: 76, alignItems: 'center', justifyContent: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm },
-  summaryLabel: { ...typography.metadata, fontSize: 10, textTransform: 'uppercase', letterSpacing: .6 },
-  summaryValue: typography.metric,
-  search: { minHeight: controlHeights.standard, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radii.md, borderWidth: 1 },
+  summaryStrip: { flexDirection: 'row', flexWrap: 'wrap', borderRadius: radii.md, overflow: 'hidden' },
+  summaryMetric: { minHeight: 76, alignItems: 'flex-start', justifyContent: 'center', gap: spacing.xs, paddingHorizontal: spacing.md },
+  summaryLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  summaryDot: { width: 7, height: 7, borderRadius: 4 },
+  summaryLabel: { ...typography.metadata, fontSize: 11, flexShrink: 1 },
+  summaryValue: { ...typography.metric, fontSize: 21 },
+  search: { minHeight: controlHeights.standard, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radii.md },
   searchInput: { flex: 1, minHeight: controlHeights.touchTarget, ...typography.body, paddingVertical: 0 },
   filters: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
-  filter: { minHeight: controlHeights.touchTarget, minWidth: controlHeights.touchTarget, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.md, borderRadius: radii.round, borderWidth: 1 },
-  filterText: { ...typography.metadata, fontWeight: '700' },
+  filter: { minHeight: controlHeights.compact, minWidth: controlHeights.touchTarget, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radii.md },
+  filterText: { ...typography.metadata, fontWeight: '600' },
+  filterCount: { minWidth: 20, minHeight: 20, paddingHorizontal: 5, borderRadius: radii.round, alignItems: 'center', justifyContent: 'center' },
+  filterCountText: { fontSize: 10, lineHeight: 14, fontWeight: '700' },
   pressed: { opacity: .72 },
   sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm },
   sectionTitle: typography.sectionTitle,

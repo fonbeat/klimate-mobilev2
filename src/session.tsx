@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, api } from './api';
-import { getInstallationId } from './notifications';
+import { getInstallationId, syncAppBadge } from './notifications';
 import { createRefreshCoordinator } from './refresh-coordinator';
 import type { LoginChallenge, Session } from './types';
 
@@ -60,15 +60,23 @@ export function SessionProvider({ children }: PropsWithChildren) {
     const challenge = await api<LoginChallenge>('/v2/sessions/login', {
       method: 'POST', body: JSON.stringify({ email: normalizedEmail, password }),
     });
-    setPendingLoginChallenge({ ...challenge, email: normalizedEmail });
+    if (challenge.accessToken && challenge.refreshToken) {
+      await persist(challenge as Session);
+      setPendingLoginChallenge(null);
+    } else if (challenge.mfaRequired && challenge.mfaChallengeToken) {
+      setPendingLoginChallenge({ ...challenge, email: normalizedEmail });
+    } else {
+      throw new Error('Klimate returned an unsupported sign-in response. Please try again.');
+    }
     return challenge;
-  }, []);
+  }, [persist]);
 
   const verify = useCallback(async (code: string) => {
-    if (!pendingLoginChallenge?.verificationToken) throw new Error('Your verification session has expired. Sign in again.');
-    const next = await api<Session>('/v2/sessions/verify', {
+    if (!pendingLoginChallenge?.mfaChallengeToken) throw new Error('Your verification session has expired. Sign in again.');
+    if (pendingLoginChallenge.mfaEnrollmentRequired) throw new Error('Set up your authenticator in Klimate on the web, then sign in here.');
+    const next = await api<Session>('/v2/sessions/mfa/verify', {
       method: 'POST',
-      body: JSON.stringify({ token: pendingLoginChallenge.verificationToken, code }),
+      body: JSON.stringify({ token: pendingLoginChallenge.mfaChallengeToken, code }),
     });
     await persist(next);
     setPendingLoginChallenge(null);
@@ -98,6 +106,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         body: JSON.stringify({ tenantId, refreshToken: current.refreshToken }),
       });
       await persist(next, generation);
+      syncAppBadge(0);
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 401 || error.code !== 'ACCESS_TOKEN_EXPIRED') throw error;
       current = await refresh();
@@ -106,6 +115,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         body: JSON.stringify({ tenantId, refreshToken: current.refreshToken }),
       });
       await persist(next, generation);
+      syncAppBadge(0);
     }
   }, [persist, refresh]);
 
@@ -115,6 +125,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
     sessionRef.current = null;
     setSession(null);
     setPendingLoginChallenge(null);
+    syncAppBadge(0);
     refreshCoordinatorRef.current.clear();
     await SecureStore.deleteItemAsync(SESSION_KEY).catch(() => undefined);
 

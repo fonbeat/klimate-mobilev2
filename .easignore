@@ -1,0 +1,17 @@
+node_modules/
+.expo/
+dist/
+.env
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+GoogleService-Info.plist
+expo-env.d.ts
+**/*service-account*.json
+**/*-firebase-adminsdk-*.json
+**/fonbeat-klimate-*.json
+
+# Firebase Android client configuration is required by the native build.
+# It contains public app identifiers, not a service-account private key.
+!google-services.json
