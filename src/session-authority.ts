@@ -1,4 +1,5 @@
 import { ApiError, type api } from './api.ts';
+import { restorableSession, validSession } from './response-validation.ts';
 import type { LoginChallenge, Session } from './types';
 
 export class SessionChangedError extends Error {
@@ -59,6 +60,7 @@ export class SessionAuthority {
     });
   }
   private async received(next: Session, generation: number) {
+    if (!validSession(next)) throw new ApiError('Klimate returned an invalid sign-in response.', 502, 'INVALID_RESPONSE');
     try { await this.commit(next, generation); }
     catch (error) {
       // A rotated token received after logout must never restore the UI/session.
@@ -75,7 +77,7 @@ export class SessionAuthority {
       if (!saved) return;
       try {
         const next = JSON.parse(saved) as Session;
-        if (!next?.user?.ID || !next.accessToken || !next.refreshToken) throw new Error('Invalid saved session');
+        if (!restorableSession(next)) throw new Error('Invalid saved session');
         this.publish(next);
       } catch { await this.options.save(null); }
     });
@@ -115,8 +117,13 @@ export class SessionAuthority {
     this.assert(generation);
     const refreshToken = this.value?.refreshToken;
     if (!refreshToken) throw new Error('Your session has expired.');
-    const next = await this.options.read<Session>('/v2/sessions/refresh', { method: 'POST', body: JSON.stringify({ refreshToken }) });
-    return this.received(next, generation);
+    try {
+      const next = await this.options.read<Session>('/v2/sessions/refresh', { method: 'POST', body: JSON.stringify({ refreshToken }) });
+      return await this.received(next, generation);
+    } catch (error) {
+      if (generation === this.generation && error instanceof ApiError && error.status === 401) void this.signOut().catch(() => undefined);
+      throw error;
+    }
   }
   refresh = () => {
     const generation = this.generation;
@@ -135,10 +142,17 @@ export class SessionAuthority {
       let next: Session;
       try { next = await send(); }
       catch (error) {
-        if (!(error instanceof ApiError) || error.code !== 'ACCESS_TOKEN_EXPIRED' || error.status !== 401) throw error;
+        if (!(error instanceof ApiError) || error.code !== 'ACCESS_TOKEN_EXPIRED' || error.status !== 401) {
+          if (generation === this.generation && error instanceof ApiError && error.status === 401) void this.signOut().catch(() => undefined);
+          throw error;
+        }
         await this.refreshNow(generation);
         this.assert(generation);
-        next = await send();
+        try { next = await send(); }
+        catch (second) {
+          if (generation === this.generation && second instanceof ApiError && second.status === 401) void this.signOut().catch(() => undefined);
+          throw second;
+        }
       }
       await this.received(next, generation);
     });
@@ -161,7 +175,10 @@ export async function authenticatedRequest<T>(authority: SessionAuthority, lease
   try { result = await read<T>(path, { ...init, token: lease.session().accessToken }); }
   catch (error) {
     if (!lease.current()) throw new SessionChangedError();
-    if (!(error instanceof ApiError) || error.status !== 401 || error.code !== 'ACCESS_TOKEN_EXPIRED') throw error;
+    if (!(error instanceof ApiError) || error.status !== 401 || error.code !== 'ACCESS_TOKEN_EXPIRED') {
+      if (error instanceof ApiError && error.status === 401) void authority.signOut().catch(() => undefined);
+      throw error;
+    }
     try {
       await authority.refresh();
       result = await read<T>(path, { ...init, token: lease.session().accessToken });

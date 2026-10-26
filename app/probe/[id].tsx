@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button, Card, Page, SectionTitle, State, StatusPill, SummaryStrip } from '@/components';
+import { Button, Card, Page, RefreshWarning, SectionTitle, State, StatusPill, SummaryStrip } from '@/components';
 import { spacing, typography } from '@/tokens';
 import { useV2Theme } from '@/theme';
 import type { Probe } from '@/types';
@@ -17,7 +17,8 @@ export default function ProbeDetail() {
   const probe = result.data;
   return <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><Page refreshing={result.refreshing} onRefresh={result.reload}>
     <View style={styles.navigation}><Pressable accessibilityRole="button" accessibilityLabel="Back to Gateways" onPress={() => router.back()} style={styles.back}><Ionicons name="chevron-back" size={26} color={colors.ink} /></Pressable><Text accessibilityRole="header" style={[styles.heading, { color: colors.ink }]}>Gateway</Text><View style={styles.navigationSpacer} /></View>
-    <State loading={result.loading && !probe} loadingMessage="Loading Gateway details…" error={result.error} onRetry={result.reload} />
+    <State loading={result.loading && !probe} loadingMessage="Loading Gateway details…" error={!probe ? result.error : null} onRetry={result.reload} />
+    {probe && <RefreshWarning error={result.error} />}
     {probe && <><Card><Text style={[styles.kicker, { color: colors.muted }]}>COLLECTOR</Text><View style={styles.row}><Text style={[styles.title, { color: colors.ink }]}>{probe.name}</Text><StatusPill status={probe.status} domain="probe" /></View><Text style={[styles.subtitle, { color: colors.muted }]}>{probe.location || probe.hostname || 'Location unavailable'}</Text></Card>
       <SummaryStrip items={[{ label: 'Targets', value: probe.assignedWork?.targetCount ?? 0 }, { label: 'Monitors', value: probe.assignedWork?.monitorCount ?? 0 }]} />
       <SectionTitle>Collector details</SectionTitle><Card>

@@ -27,7 +27,7 @@ export default function More() {
   }, [query, filter]);
   const result = usePaginatedApi<ProbeView, Probe>({ path, items: pageItems, total: pageTotal, pageSize: 24 });
   useForegroundRefresh(result.refreshVisible);
-  return <SwipeTab current="more"><SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><FlatList
+  return <SwipeTab current="more"><SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><FlatList onViewableItemsChanged={result.onViewableItemsChanged}
     key={responsive.columns} data={result.records} numColumns={responsive.columns} keyExtractor={(gateway) => gateway.id}
     contentContainerStyle={[styles.content, { paddingHorizontal: responsive.gutter }, !result.records.length && { flexGrow: 1 }]}
     columnWrapperStyle={responsive.columns > 1 ? { gap: layout.listGap } : undefined}

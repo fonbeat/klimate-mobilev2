@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, FilterBar, ListFooter, RefreshWarning, SectionTitle, State, useResponsiveLayout } from '@/components';
 import { messageOf } from '@/api';
 import { useInboxBadge } from '@/inbox-badge';
+import { inboxSummary as describeInbox } from '@/inbox-presentation';
 import { inboxItems } from '@/inbox-recovery';
 import { useSession } from '@/session';
 import { layout, radii, spacing, typography } from '@/tokens';
@@ -27,10 +28,10 @@ function InboxScreen() {
   const { colors } = useV2Theme();
   const responsive = useResponsiveLayout();
   const request = useAuthenticatedRequest();
-  const { unread: sharedUnread, refresh: refreshBadge, inspect, recovered, invalidate: invalidateBadge, recordRead } = useInboxBadge();
+  const { unread: sharedUnread, error: badgeError, lastVerifiedAt, refresh: refreshBadge, inspect, recovered, invalidate: invalidateBadge, recordRead } = useInboxBadge();
   const [filter, setFilter] = useState('All');
   const unread = sharedUnread ?? 0;
-  const inboxSummary = sharedUnread == null ? 'Checking outstanding alerts…' : unread ? `${unread} unread operational alert${unread === 1 ? '' : 's'}.` : 'You’re all caught up.';
+  const inboxSummary = describeInbox(sharedUnread, badgeError);
   const [actionError, setActionError] = useState('');
   const [markingAll, setMarkingAll] = useState(false);
   const [markingItem, setMarkingItem] = useState(false);
@@ -88,7 +89,7 @@ function InboxScreen() {
     finally { mutating.current = false; setMarkingAll(false); }
   };
 
-  return <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><FlatList
+  return <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><FlatList onViewableItemsChanged={result.onViewableItemsChanged}
     data={records}
     extraData={recovered}
     keyExtractor={(item) => item.id}
@@ -97,6 +98,7 @@ function InboxScreen() {
     ListHeaderComponent={<View style={styles.header}>
       <View style={styles.navigation}><Pressable accessibilityRole="button" accessibilityLabel="Close Inbox" onPress={() => router.back()} style={({ pressed }) => [styles.close, { borderColor: colors.line, backgroundColor: colors.card }, pressed && styles.pressed]}><Ionicons name="close" size={25} color={colors.ink} /></Pressable><Text accessibilityRole="header" style={[styles.navigationTitle, { color: colors.ink }]}>Inbox</Text><View style={styles.navigationSpacer} /></View>
       <View style={styles.intro}><Text style={[styles.eyebrow, { color: colors.blue }]}>OPERATIONAL ALERTS</Text><Text style={[styles.detail, { color: colors.muted }]}>{inboxSummary}</Text></View>
+      <RefreshWarning error={badgeError} lastVerifiedAt={lastVerifiedAt} />
       <SectionTitle>Messages</SectionTitle>
       <View style={styles.actions}><FilterBar options={['All', 'Unread']} value={filter} onChange={setFilter} label="Notification status" />{unread > 0 && <View style={styles.markAll}><Button label="Mark all read" variant="secondary" icon="checkmark-done-outline" busy={markingAll} onPress={() => void markAllRead()} /></View>}</View>
       {!!actionError && <Text accessibilityLiveRegion="assertive" style={[styles.error, { color: colors.down }]}>{actionError}</Text>}{!!result.records.length && <RefreshWarning error={result.error} />}

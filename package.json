@@ -8,6 +8,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "typecheck": "tsc --noEmit",
+    "audit:security": "pnpm audit --prod --audit-level=high",
     "version:next": "node scripts/calendar-version.cjs",
     "doctor": "expo-doctor",
     "check:store": "node --env-file-if-exists=.env scripts/check-store-readiness.cjs",

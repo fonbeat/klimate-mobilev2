@@ -13,15 +13,15 @@ test('coalesces identical GETs while keeping organization tokens and completed r
   let calls = 0;
   const finish: (() => void)[] = [];
   globalThis.fetch = async () => { calls++; await new Promise<void>((resolve) => finish.push(resolve)); return new Response('{"total":2}'); };
-  const first = api('/v2/status/monitors', { token: 'tenant-a' });
-  const same = api('/v2/status/monitors', { token: 'tenant-a' });
-  const other = api('/v2/status/monitors', { token: 'tenant-b' });
+  const first = api('/v2/test-read', { token: 'tenant-a' });
+  const same = api('/v2/test-read', { token: 'tenant-a' });
+  const other = api('/v2/test-read', { token: 'tenant-b' });
   assert.equal(first, same);
   assert.notEqual(first, other);
   assert.equal(calls, 2);
   finish.splice(0).forEach((resolve) => resolve());
   await Promise.all([first, same, other]);
-  const next = api('/v2/status/monitors', { token: 'tenant-a' });
+  const next = api('/v2/test-read', { token: 'tenant-a' });
   assert.equal(calls, 3);
   finish.splice(0).forEach((resolve) => resolve());
   await next;
@@ -51,6 +51,19 @@ test('preserves unwrapped payloads and readable non-JSON errors', () => {
   assert.deepEqual(unwrapApiPayload(parseApiBody('{"total":2}')), { total: 2 });
   assert.deepEqual(parseApiBody('  upstream unavailable  '), { message: 'upstream unavailable' });
   assert.deepEqual(parseApiBody(''), {});
+});
+
+test('successful but malformed responses never reach screens as typed data', async (t) => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  for (const raw of ['<html>Sign in</html>', '', 'null', '{"data":null}', '{"total":2}', '{"records":[{}],"total":1}']) {
+    globalThis.fetch = async () => new Response(raw);
+    await assert.rejects(api('/v2/status/monitors'), (error: unknown) => error instanceof ApiError && error.code === 'INVALID_RESPONSE');
+  }
+  globalThis.fetch = async () => new Response(null, { status: 204 });
+  await assert.rejects(api('/v2/status/monitors'), (error: unknown) => error instanceof ApiError && error.code === 'INVALID_RESPONSE');
+  globalThis.fetch = async () => new Response('{"data":{"records":[],"total":0}}');
+  assert.deepEqual(await api('/v2/status/monitors'), { records: [], total: 0 });
 });
 
 test('a completed read-state mutation allows a fresh GET even when an older GET is still in flight', async (t) => {

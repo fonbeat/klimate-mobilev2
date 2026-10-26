@@ -1,5 +1,6 @@
 import { createContext, type PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import { ApiError, messageOf } from './api';
 import { syncAppBadge } from './notifications';
 import { useSession } from './session';
 import { useAuthenticatedRequest } from './use-api';
@@ -9,6 +10,8 @@ import type { NotificationInboxItem } from './types';
 
 type InboxBadgeContextValue = {
   unread: number | null;
+  error: string | null;
+  lastVerifiedAt: number | null;
   refresh: (force?: boolean) => Promise<void>;
   inspect: (items: NotificationInboxItem[]) => Promise<void>;
   recovered: (item: NotificationInboxItem) => boolean;
@@ -25,6 +28,7 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
   const cache = useMemo(() => ({ unread: new UnreadInboxCache(), health: new InboxHealthCache() }), [scope]);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
+  const [verification, setVerification] = useState<{ scope: string; error: string | null; at: number | null }>({ scope: '', error: null, at: null });
   const revision = useRef(0);
   const pending = useRef<{ scope: string; operation: Promise<void> } | null>(null);
   type Snapshot = { scope: string; serverUnread: number | null; items: NotificationInboxItem[]; ledger: RecoveryLedger };
@@ -56,7 +60,14 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
         const ledger = await recoveries(page.items, current);
         if (!ledger || !current()) return;
         setSnapshot((previous) => ({ scope, serverUnread: page.unread, items: page.items, ledger: mergeLedger(previous.scope === scope ? previous.ledger : {}, ledger) }));
-      } catch { /* Preserve the last count if a refresh fails. */ }
+        if (current()) setVerification({ scope, error: null, at: Date.now() });
+      } catch (error) {
+        if (!current()) return;
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403 || error.code === 'INVALID_RESPONSE')) {
+          setSnapshot({ scope, serverUnread: null, items: [], ledger: {} });
+        }
+        setVerification((previous) => ({ scope, error: messageOf(error), at: previous.scope === scope ? previous.at : null }));
+      }
     })();
     pending.current = { scope, operation };
     void operation.finally(() => { if (pending.current?.operation === operation) pending.current = null; });
@@ -88,7 +99,9 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
   const recovered = useCallback((item: NotificationInboxItem) => isRecovered(item, ledger), [ledger]);
 
   useEffect(() => { syncAppBadge(unread ?? 0); }, [unread, scope]);
-  const value = useMemo(() => ({ unread, refresh, inspect, recovered, invalidate, recordRead }), [unread, refresh, inspect, recovered, invalidate, recordRead]);
+  const error = verification.scope === scope ? verification.error : null;
+  const lastVerifiedAt = verification.scope === scope ? verification.at : null;
+  const value = useMemo(() => ({ unread, error, lastVerifiedAt, refresh, inspect, recovered, invalidate, recordRead }), [unread, error, lastVerifiedAt, refresh, inspect, recovered, invalidate, recordRead]);
   return <InboxBadgeContext.Provider value={value}>{children}</InboxBadgeContext.Provider>;
 }
 

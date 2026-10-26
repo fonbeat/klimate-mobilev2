@@ -25,7 +25,7 @@ export default function Overview() {
 function MonitorOverview() {
   const { session } = useSession();
   const { setActiveView } = useStatusView();
-  const { unread: sharedUnread, refresh: refreshInbox } = useInboxBadge();
+  const { unread: sharedUnread, error: inboxError, refresh: refreshInbox } = useInboxBadge();
   const { colors } = useV2Theme();
   const down = useApiData<MonitorPage>(liveStatusPath('monitors', 0, 3, 'down', ''));
   const attention = useApiData<MonitorPage>(liveStatusPath('monitors', 0, 3, 'attention', ''));
@@ -54,7 +54,7 @@ function MonitorOverview() {
     <View style={styles.top}>
       <View><BrandLogo /><Text style={[styles.greeting, { color: colors.muted }]}>Hello, {session?.user.firstname}</Text></View>
       <View style={styles.topActions}>
-        <Pressable accessibilityRole="button" accessibilityLabel={unread ? `Notifications, ${unread} unread` : 'Notifications'} onPress={() => router.push('/notifications')} style={({ pressed }) => [styles.notificationButton, { backgroundColor: colors.card, borderColor: colors.line }, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" accessibilityLabel={inboxError ? `Notifications. Alert count could not be refreshed${unread ? `; last known count ${unread}` : ''}.` : unread ? `Notifications, ${unread} unread` : 'Notifications'} onPress={() => router.push('/notifications')} style={({ pressed }) => [styles.notificationButton, { backgroundColor: colors.card, borderColor: colors.line }, pressed && styles.pressed]}>
           <Ionicons name="notifications-outline" size={21} color={colors.muted} importantForAccessibility="no" />
           {unread > 0 && <View style={[styles.badge, { backgroundColor: colors.down }]}><Text style={[styles.badgeText, { color: colors.onStatus }]}>{unread > 99 ? '99+' : unread}</Text></View>}
         </Pressable>

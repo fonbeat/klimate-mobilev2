@@ -11,7 +11,7 @@ export function useApiData<T>(path: string, enabled = true) {
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const scope = session ? `${session.user.ID}:${session.tenantId ?? ''}` : '';
-  const dataScope = useRef(scope);
+  const dataScope = useRef(`${scope}:${path}`);
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -25,17 +25,15 @@ export function useApiData<T>(path: string, enabled = true) {
     const id = ++requestId.current;
     if (mode === 'manual') setRefreshing(true);
     if (mode === 'initial') setLoading(true);
-    setError(null);
-    setErrorCode(undefined);
     try {
       const next = await requestRef.current<T>(path);
-      if (requestId.current === id) { dataScope.current = scope; setData(next); }
+      if (requestId.current === id) { dataScope.current = `${scope}:${path}`; setData(next); setError(null); setErrorCode(undefined); }
     } catch (first) {
       if (requestId.current !== id) return;
       if (requestId.current === id) {
         setError(messageOf(first));
         setErrorCode(first instanceof ApiError ? first.code : undefined);
-        if (first instanceof ApiError && first.code === 'MODULE_DISABLED') setData(null);
+        if (first instanceof ApiError && (first.status === 401 || first.status === 403 || first.code === 'INVALID_RESPONSE')) setData(null);
       }
     } finally {
       if (requestId.current === id) {
@@ -48,6 +46,8 @@ export function useApiData<T>(path: string, enabled = true) {
   useEffect(() => {
     setData(null);
     setError(null);
+    setErrorCode(undefined);
+    setRefreshing(false);
     if (enabled) void load();
     else {
       requestId.current += 1;
@@ -57,7 +57,7 @@ export function useApiData<T>(path: string, enabled = true) {
   }, [enabled, load]);
   const reload = useCallback(() => load('manual'), [load]);
   const refreshBackground = useCallback(() => load('background'), [load]);
-  return { data: dataScope.current === scope ? data : null, setData, loading, refreshing, error, errorCode, reload, refreshBackground };
+  return { data: dataScope.current === `${scope}:${path}` ? data : null, setData, loading, refreshing, error, errorCode, reload, refreshBackground };
 }
 
 export function useAuthenticatedRequest() {

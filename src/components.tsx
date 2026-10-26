@@ -39,10 +39,10 @@ export function Card({ children, style, accessibilityLabel }: PropsWithChildren<
   return <View accessibilityLabel={accessibilityLabel} style={[styles.card, { backgroundColor: colors.card }, style]}>{children}</View>;
 }
 
-export function RefreshWarning({ error }: { error: string | null }) {
+export function RefreshWarning({ error, lastVerifiedAt }: { error: string | null; lastVerifiedAt?: number | null }) {
   const { colors } = useV2Theme();
   if (!error) return null;
-  return <Card><Text accessibilityLiveRegion="polite" style={[typography.metadata, { color: colors.attention }]}>Couldn’t refresh. Showing the last available data. {error}</Text></Card>;
+  return <Card><Text accessibilityLiveRegion="polite" style={[typography.metadata, { color: colors.attention }]}>{lastVerifiedAt ? `Last verified ${new Date(lastVerifiedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. ` : ''}Couldn’t refresh. Any displayed data may be out of date. {error}</Text></Card>;
 }
 
 export function Button({ label, onPress, icon, busy = false, disabled = false, variant = 'primary' }: { label: string; onPress: () => void; icon?: keyof typeof Ionicons.glyphMap; busy?: boolean; disabled?: boolean; variant?: 'primary' | 'secondary' | 'danger' }) {

@@ -7,3 +7,15 @@ minimumReleaseAgeExclude:
   - expo-notifications@57.0.20
   - expo-router@57.0.22
   - expo@57.0.24
+
+# Compatible security fixes for React Native / Expo tooling.
+# Remaining audit findings (do not suppress):
+# node-forge 1.4.0: no published fix, via Expo CLI certificate tooling.
+# https://github.com/advisories/GHSA-86w9-cpqp-85rv
+# zod 3.25.76: fix is 4.6.6+, but Expo CLI requires ^3.25.76.
+# Await an Expo-supported migration rather than forcing a breaking major.
+# https://github.com/advisories/GHSA-mrhx-c7xc-m3w5
+# Use trusted projects/dev-tool plugins and do not expose Metro to untrusted networks.
+overrides:
+  shell-quote: 1.11.0
+  source-map-js: 1.2.2

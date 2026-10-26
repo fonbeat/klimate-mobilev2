@@ -35,7 +35,7 @@ export default function Incidents() {
   useForegroundRefresh(result.refreshVisible);
 
   return <SwipeTab current="incidents"><SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
-    <FlatList
+    <FlatList onViewableItemsChanged={result.onViewableItemsChanged}
       key={responsive.columns}
       data={result.records}
       numColumns={responsive.columns}

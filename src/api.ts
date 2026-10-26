@@ -1,3 +1,4 @@
+import { validResponse } from './response-validation.ts';
 import { resolveApiUrl } from './api-url.ts';
 
 const API_URL = resolveApiUrl(process.env.EXPO_PUBLIC_API_URL, typeof __DEV__ === 'undefined' ? process.env.NODE_ENV !== 'production' : __DEV__);
@@ -87,13 +88,20 @@ async function requestApi<T>(path: string, options: RequestInit & { token?: stri
   }
   if (!response.ok) {
     throw new ApiError(
-      payload.code === 'MODULE_DISABLED' ? 'This feature is not enabled for your organization.' : typeof payload.message === 'string' ? payload.message : `Klimate returned HTTP ${response.status}.`,
+      payload.code === 'MODULE_DISABLED' ? 'This feature is not enabled for your organization.' : typeof payload.message === 'string' && !/<(?:!doctype|html|body)\b/i.test(payload.message) ? payload.message.slice(0, 500) : `Klimate returned HTTP ${response.status}.`,
       response.status,
       typeof payload.code === 'string' ? payload.code : undefined,
     );
   }
-  if (response.status === 204) return undefined as T;
-  return unwrapApiPayload<T>(payload);
+  if (response.status === 204) {
+    if (!options.method || options.method.toUpperCase() === 'GET') throw new ApiError('Klimate returned no data. Please try again.', 502, 'INVALID_RESPONSE');
+    return undefined as T;
+  }
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { throw new ApiError('Klimate returned an unreadable response. Please try again.', 502, 'INVALID_RESPONSE'); }
+  const value = parsed && typeof parsed === 'object' && 'data' in parsed ? (parsed as { data: unknown }).data : parsed;
+  if (!validResponse(path, value)) throw new ApiError('Klimate returned incomplete data. Please try again.', 502, 'INVALID_RESPONSE');
+  return value as T;
 }
 
 export function messageOf(error: unknown) {

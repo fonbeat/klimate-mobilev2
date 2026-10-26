@@ -5,6 +5,27 @@ import { authenticatedRequest, SessionAuthority, SessionChangedError } from './s
 import type { Session } from './types.ts';
 
 const session = (tenantId = 'A', accessToken = tenantId): Session => ({ user: { ID: 'u', firstname: 'Test', lastname: 'User', email: 'test@example.invalid', role: 'owner', isOwner: true, isAdmin: true }, tenantId, accessToken, refreshToken: `r-${accessToken}` });
+
+test('a first terminal 401 signs out immediately, while forbidden access does not', async () => {
+  for (const status of [401, 403]) {
+    const h = harness(); await h.authority.restore();
+    const read: typeof api = async () => { throw new ApiError('Access denied', status, 'ACCESS_REVOKED'); };
+    await assert.rejects(authenticatedRequest(h.authority, h.authority.capture(), '/v2/test', {}, read));
+    assert.equal(h.authority.get() === null, status === 401);
+    assert.equal(h.requests.length, 0);
+  }
+});
+
+test('restore deletes invalid saved credentials without publishing an authenticated user', async () => {
+  for (const saved of ['invalid-json', '{}', JSON.stringify({ ...session(), refreshToken: {} }), JSON.stringify({ ...session(), sessionExpiresAt: '2000-01-01T00:00:00Z' })]) {
+    const savedValues: unknown[] = []; const published: unknown[] = [];
+    const authority = new SessionAuthority({ read: async () => { throw new Error('No network needed'); }, restore: async () => saved, save: async (value) => { savedValues.push(value); }, changed: (value) => { published.push(value); }, challenge: () => {}, retire: async () => {}, discard: async () => {} });
+    await authority.restore();
+    assert.equal(authority.get(), null);
+    assert.deepEqual(savedValues, [null]);
+    assert.deepEqual(published, []);
+  }
+});
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
 function harness(read?: typeof api, save?: (next: Session | null) => Promise<void>) {
   let stored: Session | null = session();
