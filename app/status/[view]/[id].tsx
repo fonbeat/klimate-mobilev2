@@ -6,6 +6,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Card, FilterBar, Page, RefreshWarning, useResponsiveLayout, SectionTitle, State, StatusPill, SummaryStrip } from '@/components';
 import { DetailCard, ReportHeader, Notice, IncidentRows, formatDate, formatPercent } from '@/report-components';
 import { ProtocolDetail, type ProtocolReport } from '@/protocol-reports';
+import { CloudDetail, DatabaseDetail } from '@/new-monitor-details';
+import type { CloudReport, DatabaseReport } from '@/new-monitor-reports';
+import { readStatusReport, type LoadedStatusReport } from '@/status-report-reader';
 import { validReportPath, canonicalReportPath, isDirectMonitorReport, monitorReportPath } from '@/report-routing';
 import { useV2Theme } from '@/theme';
 import { layout, spacing, typography } from '@/tokens';
@@ -49,15 +52,19 @@ function ReportScreen({ view: rawView, id, reportPath }: { view: string; id: str
   const valid = statusViews.includes(view) && !!id && (!reportPath || (view === 'monitors' && validReportPath(reportPath)));
   const { colors } = useV2Theme();
   const [window, setWindow] = useState('24h');
-  const path = valid ? (reportPath ? canonicalReportPath(reportPath)! : `/v2/${view}/${encodeURIComponent(id)}/${view === 'monitors' ? 'uptime' : 'report'}`) : '';
-  const result = useApiData<MonitorReport | TargetReport | ServiceReport | ProtocolReport>(`${path}?${view === 'services' ? 'availability' : 'window'}=${window}`, valid);
-  const report = result.data;
+  const [cloudLocation, setCloudLocation] = useState('');
+  const requestedPath = valid ? (reportPath ? canonicalReportPath(reportPath)! : `/v2/${view}/${encodeURIComponent(id)}/${view === 'monitors' ? 'uptime' : 'report'}`) : '';
+  const query = new URLSearchParams({ [view === 'services' ? 'availability' : 'window']: window });
+  if (requestedPath.startsWith('/v3/cloudMonitors/')) { query.set('limit', '25'); if (cloudLocation) query.set('locationId', cloudLocation); }
+  const result = useApiData<LoadedStatusReport>(`${requestedPath}?${query}`, valid, readStatusReport);
+  const path = result.data?.path ?? requestedPath;
+  const report = result.data?.report as MonitorReport | TargetReport | ServiceReport | ProtocolReport | CloudReport | DatabaseReport | undefined;
   // Inbox/incident links can contain only a monitor ID. Resolve its protocol from the API.
-  const fallback = view === 'monitors' && !reportPath && report ? report as MonitorReport : null;
-  const type = fallback?.monitor?.type.toUpperCase();
+  const fallback = view === 'monitors' && !reportPath && path.endsWith('/uptime') && report ? report as MonitorReport : null;
+  const type = fallback?.monitor?.type?.toUpperCase();
   const needsTarget = type === 'FLOW' || type === 'SYSLOG' || type === 'SNMP';
   const targetContext = useApiData<TargetReport>(fallback?.target?.id ? `/v2/targets/${encodeURIComponent(fallback.target.id)}/report` : '', !!fallback?.target?.id && needsTarget);
-  const resolvedPath = isDirectMonitorReport(type)
+  const resolvedPath = !reportPath && report && path !== requestedPath ? path : isDirectMonitorReport(type)
     ? monitorReportPath({ monitorID: id, type: type! })
     : targetContext.data?.monitors.find((monitor) => monitor.id === id)?.reportPath;
   const resolving = !!fallback && (isDirectMonitorReport(type) || needsTarget) && (!resolvedPath || !resolvedPath.endsWith('/uptime'));
@@ -77,7 +84,7 @@ function ReportScreen({ view: rawView, id, reportPath }: { view: string; id: str
   if (report && view === 'targets') return <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><TargetDetail report={report as TargetReport} header={header} refreshing={result.refreshing} onRefresh={refresh} /></SafeAreaView>;
   return <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><Page refreshing={result.refreshing} onRefresh={refresh}>
     {header}
-    {report && view === 'monitors' && !resolving && (path.endsWith('/uptime') ? <MonitorDetail report={report as MonitorReport} /> : <ProtocolDetail path={path} report={report as ProtocolReport} />)}
+    {report && view === 'monitors' && !resolving && (path.startsWith('/v3/cloudMonitors/') ? <CloudDetail report={report as CloudReport} locationId={cloudLocation} onLocation={setCloudLocation} /> : path.startsWith('/v3/databaseMonitors/') ? <DatabaseDetail report={report as DatabaseReport} /> : path.endsWith('/uptime') ? <MonitorDetail report={report as MonitorReport} /> : <ProtocolDetail path={path} report={report as ProtocolReport} />)}
     {report && view === 'services' && <ServiceDetail report={report as ServiceReport} id={id} />}
   </Page></SafeAreaView>;
 }

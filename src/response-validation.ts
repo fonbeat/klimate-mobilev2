@@ -29,6 +29,34 @@ function matches(value: unknown, shape: Shape): boolean {
 const metric = { formatted: 'string' };
 const monitorRow = { ID: 'string', label: 'string', type: 'string', status: 'string' } satisfies Shape;
 const incidentRow = { id: 'string', status: 'string', label: 'string', type: 'string', startedAt: 'string' };
+const execution = { id: 'string', locationId: 'string', scheduledAt: 'string', completedAt: 'string|null', state: 'string', totalMs: 'number' };
+
+function validCloud(value: unknown) {
+  if (!matches(value, { monitor: { id: 'string', name: 'string', enabled: 'boolean', config: { url: 'string', method: 'string', locationIds: ['string'] } }, targetName: 'string', collectionEnabled: 'boolean', generatedAt: 'string', summary: { state: 'string', healthyLocations: 'count', failedLocations: 'count', unknownLocations: 'count', reportingLocations: 'count', meanResponseMs: 'number|null' }, locations: [{}], items: [execution], total: 'count' }) || !object(value)) return false;
+  const config = (value.monitor as { config: { locationIds: string[] } }).config;
+  const locations = value.locations as Record<string, unknown>[];
+  if (!config.locationIds.length || config.locationIds.length > 20 || new Set(config.locationIds).size !== config.locationIds.length || locations.length !== config.locationIds.length || (value.items as unknown[]).length > 100 || !Number.isFinite(Date.parse(value.generatedAt as string))) return false;
+  const ids = new Set<string>();
+  if (!locations.every((location) => {
+    if (!matches(location, { id: 'string', name: 'string', available: 'boolean', state: 'string' }) || !config.locationIds.includes(location.id as string) || ids.has(location.id as string)) return false;
+    ids.add(location.id as string);
+    return location.latest === null || matches(location.latest, execution);
+  })) return false;
+  const runs = [...value.items as Record<string, unknown>[], ...locations.map((location) => location.latest).filter(object)];
+  if (!runs.every((run) => config.locationIds.includes(run.locationId as string) && Number.isFinite(Date.parse(run.scheduledAt as string)) && (run.completedAt === null || Number.isFinite(Date.parse(run.completedAt as string))) && ['dnsMs', 'connectMs', 'tlsMs', 'ttfbMs', 'statusCode'].every((key) => run[key] === undefined || (typeof run[key] === 'number' && Number.isFinite(run[key]) && run[key] >= 0)) && (run.reason === undefined || text(run.reason)) && (run.historical === undefined || typeof run.historical === 'boolean'))) return false;
+  const summary = value.summary as Record<string, unknown>;
+  if (summary.medianResponseMs !== undefined && !matches(summary.medianResponseMs, 'number|null')) return false;
+  if (summary.canResolveIncident !== undefined && typeof summary.canResolveIncident !== 'boolean') return false;
+  return value.mapLocations === undefined || (matches(value.mapLocations, [{ id: 'string', name: 'string', country: 'string', readiness: 'string', lastContact: 'string|null' }]) && (value.mapLocations as Record<string, unknown>[]).length <= 20 && (value.mapLocations as Record<string, unknown>[]).every((location) => config.locationIds.includes(location.id as string)));
+}
+
+function validDatabase(value: unknown) {
+  if (!matches(value, { monitorId: 'string', targetId: 'string', targetName: 'string', gatewayName: 'string', source: { id: 'string', engine: 'string', endpoint: 'string', database: 'string', lastSeen: 'string' }, status: 'string', collectionState: 'string', end: 'string', latest: [{ key: 'string', name: 'string', unit: 'string', value: 'number', rate: 'number|null', cumulative: 'boolean', at: 'string', attributes: {} }], alert: { enabled: 'boolean', state: 'string', reason: 'string' } }) || !object(value)) return false;
+  if ((value.latest as unknown[]).length > 256 || !Number.isFinite(Date.parse(value.end as string)) || !Number.isFinite(Date.parse((value.source as Record<string, unknown>).lastSeen as string))) return false;
+  if (value.openIncidents !== undefined && !count(value.openIncidents)) return false;
+  if (!['scrapeState', 'scrapeReason'].every((key) => value[key] === undefined || text(value[key]))) return false;
+  return (value.latest as Record<string, unknown>[]).every((metric) => Number.isFinite(Date.parse(metric.at as string)) && Object.keys(metric.attributes as object).length <= 10 && Object.values(metric.attributes as object).every(text));
+}
 
 /** Validate fields consumed directly by screens. Additive server fields remain allowed. */
 export function validResponse(path: string, value: unknown): boolean {
@@ -36,6 +64,8 @@ export function validResponse(path: string, value: unknown): boolean {
   if (route === '/v2/sessions/login') return validSession(value) || (object(value) && value.mfaRequired === true && text(value.mfaChallengeToken) && !!value.mfaChallengeToken);
   if (['/v2/sessions/refresh', '/v2/sessions/switch', '/v2/sessions/mfa/verify'].includes(route)) return validSession(value);
   if (!object(value) && !Array.isArray(value)) return false;
+  if (/^\/v3\/cloudMonitors\/[^/]+\/report$/.test(route)) return validCloud(value);
+  if (/^\/v3\/databaseMonitors\/[^/]+\/report$/.test(route)) return validDatabase(value);
   let shape: Shape | undefined;
   if (route === '/v2/status/monitors') shape = { records: [monitorRow], total: 'count' };
   if (route === '/v2/status/targets') shape = { records: [{ ID: 'string', label: 'string', status: 'string', tags: ['string'] }], total: 'count' };

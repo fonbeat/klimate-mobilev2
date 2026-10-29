@@ -1,12 +1,35 @@
 minimumReleaseAgeExclude:
-  - '@expo/cli@57.0.26'
+  - '@expo/cli@57.0.26 || 58.1.17'
   - '@expo/metro-runtime@57.0.16'
   - '@expo/ui@57.0.19'
-  - expo-asset@57.0.18
-  - expo-constants@57.0.19
-  - expo-notifications@57.0.20
-  - expo-router@57.0.22
-  - expo@57.0.24
+  - expo-asset@57.0.18 || 58.0.19
+  - expo-constants@57.0.19 || 58.0.14
+  - expo-notifications@57.0.20 || 58.1.7
+  - expo-router@57.0.22 || 58.0.28
+  - expo@57.0.24 || 58.0.21
+  - '@expo/config-plugins@58.0.11'
+  - '@expo/config@58.0.9'
+  - '@expo/image-utils@0.12.6'
+  - '@expo/inline-modules@0.2.8'
+  - '@expo/local-build-cache-provider@58.0.9'
+  - '@expo/metro-config@58.0.19'
+  - '@expo/modules-macros-linux-arm64@0.27.1'
+  - '@expo/modules-macros-linux-x64@0.27.1'
+  - '@expo/modules-macros-win32-arm64@0.27.1'
+  - '@expo/modules-macros-win32-x64@0.27.1'
+  - '@expo/prebuild-config@58.0.17'
+  - '@expo/require-utils@58.0.5'
+  - '@expo/router-server@58.0.19'
+  - babel-preset-expo@58.0.22
+  - expo-file-system@58.0.13
+  - expo-font@58.0.11
+  - expo-linking@58.0.15
+  - expo-modules-autolinking@58.0.16
+  - expo-modules-cli@0.4.0
+  - expo-modules-core@58.0.28
+  - expo-modules-jsi@58.0.21
+  - expo-modules-macros@0.27.1
+  - expo-splash-screen@58.0.12
 
 # Compatible security fixes for React Native / Expo tooling.
 # Remaining audit findings (do not suppress):
@@ -15,6 +38,8 @@ minimumReleaseAgeExclude:
 # zod 3.25.76: fix is 4.6.6+, but Expo CLI requires ^3.25.76.
 # Await an Expo-supported migration rather than forcing a breaking major.
 # https://github.com/advisories/GHSA-mrhx-c7xc-m3w5
+# deepmerge 4.3.1: low-severity Expo config tooling advisory, no published fix.
+# https://github.com/advisories/GHSA-gcqx-w48m-w2h4
 # Use trusted projects/dev-tool plugins and do not expose Metro to untrusted networks.
 overrides:
   shell-quote: 1.11.0

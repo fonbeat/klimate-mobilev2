@@ -1,4 +1,5 @@
 import type { NotificationInboxItem, NotificationInboxPage } from './types';
+import { monitorRecoveryEvidence, readStatusReport } from './status-report-reader.ts';
 
 export type RecoveryLedger = Record<string, number>;
 export type InboxRead = <T>(path: string) => Promise<T>;
@@ -69,15 +70,15 @@ export async function checkRecoveries(items: NotificationInboxItem[], ledger: Re
         if (Number.isFinite(saved) && saved > 0 && saved <= clock() + 60_000) next[key] = Math.max(next[key] ?? 0, saved);
         if (alerts.every((candidate) => isRecovered(candidate, next))) continue;
         const monitor = item.resourceType === 'monitor';
-        const status = await read<{ status: string; generatedAt?: string; lastSeenAt?: string | null }>(monitor
-          ? `/v2/monitors/${encodeURIComponent(item.resourceId)}/uptime?window=1h`
-          : `/v2/gateways/${encodeURIComponent(item.resourceId)}`);
+        const evidence = monitor ? monitorRecoveryEvidence(await readStatusReport(`/v2/monitors/${encodeURIComponent(item.resourceId)}/uptime?window=1h`, read), clock()) : await (async () => {
+          const status = await read<{ status: string; lastSeenAt?: string | null }>(`/v2/gateways/${encodeURIComponent(item.resourceId)}`);
+          return { healthy: status.status?.toLowerCase() === 'online', at: status.lastSeenAt };
+        })();
         if (!current()) return;
         // Monitor reports compute a fresh current snapshot. generatedAt is ISO;
         // lastUpdated is only a display clock. Gateways expose heartbeat time.
-        const healthy = monitor ? status.status?.toLowerCase() === 'up' : status.status?.toLowerCase() === 'online';
-        const at = Date.parse((monitor ? status.generatedAt : status.lastSeenAt) ?? '');
-        if (!healthy || !Number.isFinite(at) || at > clock() + 60_000 || clock() - at > 5 * 60_000) continue;
+        const at = Date.parse(evidence.at ?? '');
+        if (!evidence.healthy || !Number.isFinite(at) || at > clock() + 60_000 || clock() - at > 5 * 60_000) continue;
         if (at > (next[key] ?? 0)) {
           next[key] = at;
           await save(key, String(at)).catch(() => undefined);

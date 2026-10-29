@@ -2,7 +2,7 @@ import type { Incident, Monitor } from './types';
 
 // Report paths remain API-local and read-only, even when provided by navigation params.
 export function validReportPath(path?: string) {
-  if (!path || !/^\/(?:v2\/(?:monitors\/[^/?#]+\/(?:uptime|path|interface|host|server)|snmp\/endpoints\/[^/?#]+\/report|flow\/exporters\/[^/?#]+\/report|syslog\/sources\/[^/?#]+\/report)|v3\/monitors\/[^/?#]+\/winrm)$/.test(path)) return false;
+  if (!path || !/^\/(?:v2\/(?:monitors\/[^/?#]+\/(?:uptime|path|interface|host|server)|snmp\/endpoints\/[^/?#]+\/report|flow\/exporters\/[^/?#]+\/report|syslog\/sources\/[^/?#]+\/report)|v3\/(?:monitors\/[^/?#]+\/winrm|(?:cloudMonitors|databaseMonitors)\/[^/?#]+\/report))$/.test(path)) return false;
   try { return path.split('/').every((part) => { const decoded = decodeURIComponent(part); return decoded !== '..' && decoded !== '.' && !/[\\/?#]/.test(decoded); }); }
   catch { return false; }
 }
@@ -12,12 +12,14 @@ export function canonicalReportPath(path: string) {
 }
 
 export function isDirectMonitorReport(type?: string) {
-  return ['PATH', 'HOST', 'SERVER', 'WINRM'].includes(type?.toUpperCase() ?? '');
+  return ['PATH', 'HOST', 'SERVER', 'WINRM', 'CLOUD', 'DATABASE'].includes(type?.toUpperCase() ?? '');
 }
 
 export function monitorReportPath(monitor: Pick<Monitor, 'type' | 'monitorID' | 'snmp' | 'flow' | 'syslog' | 'liveMetric'>) {
   const id = monitor.monitorID ? encodeURIComponent(monitor.monitorID) : '';
   switch (monitor.type.toUpperCase()) {
+    case 'CLOUD': return id ? `/v3/cloudMonitors/${id}/report` : undefined;
+    case 'DATABASE': return id ? `/v3/databaseMonitors/${id}/report` : undefined;
     case 'PATH': return id ? `/v2/monitors/${id}/path` : undefined;
     case 'HOST': case 'SERVER': return id ? `/v2/monitors/${id}/host` : undefined;
     case 'WINRM': return id ? `/v3/monitors/${id}/winrm` : undefined;

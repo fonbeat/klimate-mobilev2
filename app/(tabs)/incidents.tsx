@@ -22,7 +22,7 @@ export default function Incidents() {
   const responsive = useResponsiveLayout();
   const [filter, setFilter] = useState('All');
   const params = useLocalSearchParams<{ kind?: string; probeId?: string }>();
-  const kinds: Record<string, string> = { All: '', Monitors: 'monitor', Services: 'service', Applications: 'apm', Gateways: 'probe' };
+  const kinds: Record<string, string> = { All: '', Monitors: 'monitor', Cloud: 'cloud', Services: 'service', Applications: 'apm', Gateways: 'probe' };
   const kind = Object.values(kinds).includes(params.kind ?? '') ? params.kind ?? '' : '';
   const pagePath = useCallback((offset: number, pageSize: number) => {
     const page = Math.floor(offset / pageSize) + 1;

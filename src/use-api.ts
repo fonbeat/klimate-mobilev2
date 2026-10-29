@@ -3,7 +3,7 @@ import { ApiError, api, messageOf } from './api';
 import { useSession } from './session';
 import { authenticatedRequest, sessionScope } from './session-authority';
 
-export function useApiData<T>(path: string, enabled = true) {
+export function useApiData<T>(path: string, enabled = true, loader?: (path: string, read: <R>(path: string) => Promise<R>) => Promise<T>) {
   const { session } = useSession();
   const request = useAuthenticatedRequest();
   const requestRef = useRef(request);
@@ -26,7 +26,8 @@ export function useApiData<T>(path: string, enabled = true) {
     if (mode === 'manual') setRefreshing(true);
     if (mode === 'initial') setLoading(true);
     try {
-      const next = await requestRef.current<T>(path);
+      const read = requestRef.current;
+      const next = loader ? await loader(path, read) : await read<T>(path);
       if (requestId.current === id) { dataScope.current = `${scope}:${path}`; setData(next); setError(null); setErrorCode(undefined); }
     } catch (first) {
       if (requestId.current !== id) return;
@@ -41,7 +42,7 @@ export function useApiData<T>(path: string, enabled = true) {
         setRefreshing(false);
       }
     }
-  }, [enabled, path, scope]);
+  }, [enabled, path, scope, loader]);
 
   useEffect(() => {
     setData(null);

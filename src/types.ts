@@ -114,7 +114,7 @@ export type ServiceStatusPage = { lastUpdated?: string; offset: number; limit: n
 
 export type Incident = {
   id: string;
-  kind?: 'monitor' | 'service' | 'probe' | 'apm';
+  kind?: 'monitor' | 'service' | 'probe' | 'apm' | 'cloud';
   applicationId?: string | null;
   serviceID?: string;
   serviceName?: string;

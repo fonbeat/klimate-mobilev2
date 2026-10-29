@@ -1,7 +1,7 @@
 import type { Incident } from './types';
 
 export function incidentResourceLabel(incident: Pick<Incident, 'kind'>) {
-  return incident.kind === 'apm' ? 'Application' : incident.kind === 'probe' ? 'Gateway' : incident.kind === 'service' ? 'Service' : 'Monitor';
+  return incident.kind === 'cloud' ? 'Cloud monitor' : incident.kind === 'apm' ? 'Application' : incident.kind === 'probe' ? 'Gateway' : incident.kind === 'service' ? 'Service' : 'Monitor';
 }
 
 // Only the summary fields are consumed. Investigation and operational controls
