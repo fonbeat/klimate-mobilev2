@@ -20,3 +20,9 @@ export function mergeRefreshedPage<T>(cached: T[], incoming: T[], offset: number
   next.splice(offset, incoming.length, ...incoming);
   return next;
 }
+
+export function appendPage<T>(cached: T[], incoming: T[], total: number, previousTotal: number): T[] | null {
+  if (total !== previousTotal) return null;
+  const loaded = new Set(cached.map(itemKey));
+  return incoming.some((item) => loaded.has(itemKey(item))) ? null : [...cached, ...incoming];
+}

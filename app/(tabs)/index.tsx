@@ -1,18 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, type Href } from 'expo-router';
-import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BrandLogo } from '@/brand-logo';
 import { Card, Page, State } from '@/components';
-import { cardsForPage, liveStatusPath, statusCounts } from '@/live-status';
-import { overviewIssueFilter, overviewPortrait, overviewSectionTitle, type HealthCounts } from '@/overview-presentation';
+import { offlineGatewaysPath } from '@/live-status';
+import { overviewActiveIssueCount, overviewIssueFilter, overviewPortrait, overviewSectionTitle, type HealthCounts } from '@/overview-presentation';
+import { overviewPath, readOverview } from '@/overview-reader';
 import { useInboxBadge } from '@/inbox-badge';
 import { useSession } from '@/session';
 import { useStatusView } from '@/status-view';
 import { spacing, typography } from '@/tokens';
 import { statusColor, useV2Theme } from '@/theme';
-import type { MonitorPage } from '@/types';
+import type { ProbeView } from '@/types';
 import { useApiData } from '@/use-api';
 import { useForegroundRefresh } from '@/use-foreground-refresh';
 import { SwipeTab } from '@/swipe-tabs';
@@ -25,24 +25,22 @@ export default function Overview() {
 function MonitorOverview() {
   const { session } = useSession();
   const { setActiveView } = useStatusView();
-  const { unread: sharedUnread, error: inboxError, refresh: refreshInbox } = useInboxBadge();
+  const { refresh: refreshInbox } = useInboxBadge();
   const { colors } = useV2Theme();
-  const down = useApiData<MonitorPage>(liveStatusPath('monitors', 0, 3, 'down', ''));
-  const attention = useApiData<MonitorPage>(liveStatusPath('monitors', 0, 3, 'attention', ''));
-  const unread = sharedUnread ?? 0;
-  const counts = statusCounts('monitors', down.data ?? attention.data);
-  const issues = [...(down.data ? cardsForPage('monitors', down.data) : []), ...(attention.data ? cardsForPage('monitors', attention.data) : [])].slice(0, 3);
+  const overview = useApiData(overviewPath, true, readOverview);
+  const offlineGateways = useApiData<ProbeView>(offlineGatewaysPath(0, 1));
+  const activeIssues = overviewActiveIssueCount(
+    overview.error ? undefined : overview.data?.counts,
+    offlineGateways.error ? undefined : offlineGateways.data?.total,
+  );
+  const issueLabel = activeIssues == null ? 'Active issue count unavailable' : `${activeIssues} active ${activeIssues === 1 ? 'issue' : 'issues'}`;
+  const counts = overview.data?.counts ?? { total: 0, healthy: 0, down: 0, attention: 0, unknown: 0 };
+  const issues = overview.data?.issues ?? [];
   const issueCount = counts.down + counts.attention;
-  const loading = down.loading && !down.data && !attention.data;
-  const error = !down.data && !attention.data ? down.error ?? attention.error : null;
-  const refreshing = down.refreshing || attention.refreshing;
-  const refresh = () => { void down.reload(); void attention.reload(); void refreshInbox(true); };
-  useForegroundRefresh(() => { void down.refreshBackground(); void attention.refreshBackground(); void refreshInbox(); });
-  const lastUpdated = down.data?.summary?.lastUpdated ?? attention.data?.summary?.lastUpdated;
-  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
-  useEffect(() => { if (down.data || attention.data) setLastRefreshed(new Date()); }, [down.data, attention.data]);
-  const updatedLabel = lastUpdated ? formatUpdated(lastUpdated, 'Updated') : lastRefreshed ? formatUpdated(lastRefreshed, 'Refreshed') : '';
-  const staleError = down.error || attention.error;
+  const refresh = () => { void overview.reload(); void offlineGateways.reload(); void refreshInbox(true); };
+  useForegroundRefresh(() => { void overview.refreshBackground(); void offlineGateways.refreshBackground(); void refreshInbox(); });
+  const updatedLabel = overview.data?.lastUpdated ? formatUpdated(overview.data.lastUpdated) : '';
+  const staleError = overview.error && !!overview.data;
   const issueFilter = overviewIssueFilter(counts);
   const openAffectedMonitors = () => {
     if (!issueFilter) return;
@@ -50,20 +48,20 @@ function MonitorOverview() {
     router.push({ pathname: '/(tabs)/monitors', params: { statusFilter: issueFilter } });
   };
 
-  return <SwipeTab current="overview"><SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><Page refreshing={refreshing} onRefresh={refresh}>
+  return <SwipeTab current="overview"><SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><Page refreshing={overview.refreshing || offlineGateways.refreshing} onRefresh={refresh}>
     <View style={styles.top}>
       <View><BrandLogo /><Text style={[styles.greeting, { color: colors.muted }]}>Hello, {session?.user.firstname}</Text></View>
       <View style={styles.topActions}>
-        <Pressable accessibilityRole="button" accessibilityLabel={inboxError ? `Notifications. Alert count could not be refreshed${unread ? `; last known count ${unread}` : ''}.` : unread ? `Notifications, ${unread} unread` : 'Notifications'} onPress={() => router.push('/notifications')} style={({ pressed }) => [styles.notificationButton, { backgroundColor: colors.card, borderColor: colors.line }, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Open Inbox. ${issueLabel}`} onPress={() => router.push({ pathname: '/notifications', params: { filter: 'active' } })} style={({ pressed }) => [styles.notificationButton, { backgroundColor: colors.card, borderColor: colors.line }, pressed && styles.pressed]}>
           <Ionicons name="notifications-outline" size={21} color={colors.muted} importantForAccessibility="no" />
-          {unread > 0 && <View style={[styles.badge, { backgroundColor: colors.down }]}><Text style={[styles.badgeText, { color: colors.onStatus }]}>{unread > 99 ? '99+' : unread}</Text></View>}
+          {activeIssues != null && activeIssues > 0 && <View style={[styles.badge, { backgroundColor: colors.down }]}><Text style={[styles.badgeText, { color: colors.onStatus }]}>{activeIssues > 99 ? '99+' : activeIssues}</Text></View>}
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Open profile and preferences" onPress={() => router.push('/profile')} style={({ pressed }) => [styles.avatar, { backgroundColor: colors.cardRaised, borderColor: colors.line }, pressed && styles.pressed]}><Text style={[styles.avatarText, { color: colors.blue }]}>{session?.user.firstname?.[0]}{session?.user.lastname?.[0]}</Text></Pressable>
       </View>
     </View>
-    <State loading={loading} loadingMessage="Loading monitor health…" error={error} onRetry={refresh} />
-    {!!staleError && (down.data || attention.data) && <Card><Text accessibilityLiveRegion="polite" style={[styles.emptyText, { color: colors.attention }]}>Couldn’t refresh monitors. Showing the last known status. Pull down to try again.</Text></Card>}
-    {(down.data || attention.data) && <>
+    <State loading={overview.loading && !overview.data} loadingMessage="Loading monitor health…" error={overview.data ? null : overview.error} onRetry={refresh} />
+    {!!staleError && <Card><Text accessibilityLiveRegion="polite" style={[styles.emptyText, { color: colors.attention }]}>Couldn’t refresh monitors. Showing the last known status. Pull down to try again.</Text></Card>}
+    {overview.data && <>
       <HealthPortrait counts={counts} updatedLabel={updatedLabel} onPress={issueFilter ? openAffectedMonitors : undefined} />
       <View style={styles.priorityHeader}>
         <View style={styles.flex}>
@@ -99,9 +97,9 @@ function HealthPortrait({ counts, updatedLabel, onPress }: { counts: HealthCount
   return onPress ? <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityHint={`Opens Status, Monitors, ${counts.down > 0 ? 'Down' : 'Attention'}`} onPress={onPress} style={({ pressed }) => pressed && styles.pressed}>{content}</Pressable> : content;
 }
 
-function formatUpdated(value: string | Date, verb: string) {
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : `${verb} ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+function formatUpdated(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : `Updated ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 }
 
 const styles = StyleSheet.create({

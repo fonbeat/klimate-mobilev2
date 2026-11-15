@@ -31,6 +31,10 @@ export function liveStatusPath(view: StatusView, offset: number, limit: number, 
   return `/v2/status/${view}?${params}`;
 }
 
+export function offlineGatewaysPath(offset: number, limit: number) {
+  return `/v2/gateways?offset=${offset}&limit=${limit}&status=offline`;
+}
+
 export function monitorCard(monitor: Monitor): LiveStatusCard {
   const reportPath = monitorReportPath(monitor);
   return { id: monitor.monitorID || monitor.ID, label: monitor.label, subtitle: monitor.host || monitor.monitorLabel,

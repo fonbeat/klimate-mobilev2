@@ -3,15 +3,17 @@ import { AppState, Linking, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Button } from './components';
 import { messageOf } from './api';
-import { phoneNotificationPermission, pushProjectId, requestPushNotifications } from './notifications';
+import { phoneNotificationPermission, pushProjectId, requestPushNotifications, usePushRegistrationStatus } from './notifications';
 import { phonePermissionLabel, type PhonePermission } from './push-alert-policy';
 import { useSession } from './session';
+import { sessionScope } from './session-authority';
 import { useV2Theme } from './theme';
 import { spacing, typography } from './tokens';
 
-export function PhoneNotifications() {
+export function PhoneNotifications({ organizationName }: { organizationName?: string }) {
   const { colors } = useV2Theme();
   const { session } = useSession();
+  const registration = usePushRegistrationStatus();
   const [permission, setPermission] = useState<PhonePermission | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -45,6 +47,9 @@ export function PhoneNotifications() {
     finally { if (mounted.current) { setBusy(false); await refresh(); } }
   };
   const allowed = permission === 'allowed' || permission === 'quiet';
+  const scope = sessionScope(session);
+  const phase = registration.scope === scope ? registration.phase : 'pending';
+  const ownerChanged = !!registration.confirmedScope && registration.confirmedScope !== scope;
   return <View style={{ gap: spacing.sm }}>
     <Text accessibilityRole="header" style={[typography.cardTitle, { color: colors.ink }]}>Phone notifications</Text>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -54,6 +59,10 @@ export function PhoneNotifications() {
     <Text style={[typography.metadata, { color: colors.muted }]}>Monitor-down and gateway-offline push alerts are kept enabled by Klimate Mobile. Your phone must allow notifications to receive them when the app is closed.</Text>
     {permission === 'quiet' && <Text style={[typography.metadata, { color: colors.muted }]}>Your phone currently delivers notifications quietly. Change this in phone settings if you want banners and sounds.</Text>}
     {!pushProjectId() && <Text style={[typography.metadata, { color: colors.attention }]}>Push delivery is not configured in this build. Phone permission alone does not enable delivery.</Text>}
+    {allowed && pushProjectId() && <Text accessibilityLiveRegion="polite" style={[typography.metadata, { color: phase === 'failed' || ownerChanged ? colors.attention : colors.muted }]}>
+      {phase === 'registered' ? `Registered for ${organizationName ?? 'this organization'}.` : phase === 'failed' ? 'Couldn’t confirm push registration. Klimate will retry while the app is open.' : phase === 'unavailable' ? 'Push registration is unavailable in this build.' : 'Confirming push registration…'}
+      {ownerChanged ? ' This phone may still receive alerts for the previous organization.' : ''}
+    </Text>}
     {permission !== 'unavailable' && <>
       {permission !== null && (!allowed || !!pushProjectId()) && <Button label={allowed ? 'Check push registration' : 'Allow notifications'} icon="notifications-outline" variant="secondary" busy={busy} onPress={() => void allow()} />}
       <Button label="Open phone settings" icon="settings-outline" variant="secondary" disabled={busy} onPress={() => void Linking.openSettings().catch((error) => { if (mounted.current) setMessage(messageOf(error)); })} />

@@ -19,5 +19,7 @@ test('API guards reject missing lists and malformed rows, but allow additive fie
   assert.equal(validResponse('/v2/targets/t/report', { target: {}, summary: {}, monitors: null }), false);
   assert.equal(validResponse('/v2/services/s/report', { service: { name: 's', health: 'up' }, definition: {}, current: { state: 'up', indicators: [], dependencies: [], redundancyGroups: [] } }), false);
   assert.ok(validResponse('/v2/sessions/login', { mfaRequired: true, mfaChallengeToken: 'challenge' }));
+  assert.ok(validResponse('/v2/sessions/switch', { mfaRequired: true, mfaChallengeToken: 'challenge' }));
+  assert.equal(validResponse('/v2/sessions/switch', { mfaRequired: true, mfaChallengeToken: ' ' }), false);
   assert.equal(validResponse('/v2/sessions/refresh', { accessToken: 'only-one-field' }), false);
 });

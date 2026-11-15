@@ -4,7 +4,7 @@ import { ApiError, messageOf } from './api';
 import { syncAppBadge } from './notifications';
 import { useSession } from './session';
 import { useAuthenticatedRequest } from './use-api';
-import { checkRecoveries, isRecovered, outstandingUnread, recoveryStorageKey, type RecoveryLedger } from './inbox-recovery';
+import { checkRecoveries, isRecovered, outstandingUnread, recoveryStorageKey, recoveryWindow, type RecoveryLedger } from './inbox-recovery';
 import { InboxHealthCache, UnreadInboxCache } from './inbox-refresh-cache';
 import type { NotificationInboxItem } from './types';
 
@@ -25,7 +25,7 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
   const { session } = useSession();
   const request = useAuthenticatedRequest();
   const scope = session ? `${session.user.ID}:${session.tenantId ?? ''}` : '';
-  const cache = useMemo(() => ({ unread: new UnreadInboxCache(), health: new InboxHealthCache() }), [scope]);
+  const cache = useMemo(() => ({ unread: new UnreadInboxCache(Date.now, 300_000), health: new InboxHealthCache(), olderOffset: 0 }), [scope]);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   const [verification, setVerification] = useState<{ scope: string; error: string | null; at: number | null }>({ scope: '', error: null, at: null });
@@ -38,9 +38,14 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
   const invalidate = useCallback(() => { revision.current++; pending.current = null; }, []);
   useEffect(() => invalidate, [scope, invalidate]);
 
-  const recoveries = useCallback(async (items: NotificationInboxItem[], current: () => boolean) => {
+  const recoveries = useCallback(async (items: NotificationInboxItem[], current: () => boolean, badge = false) => {
     const ledger = snapshotRef.current.scope === scope ? snapshotRef.current.ledger : {};
     return checkRecoveries(items, ledger, { read: (path) => cache.health.read(path, request), current,
+      select: badge ? (pending) => {
+        const { selected, next } = recoveryWindow(pending, cache.olderOffset);
+        cache.olderOffset = next;
+        return selected;
+      } : undefined,
       load: (key) => cache.health.load(key, () => SecureStore.getItemAsync(recoveryStorageKey(scope, key))),
       save: (key, value) => SecureStore.setItemAsync(recoveryStorageKey(scope, key), value),
     });
@@ -57,7 +62,7 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
         const page = await cache.unread.read(request, current, force);
         if (!page) return;
         setSnapshot((previous) => ({ scope, serverUnread: page.unread, items: page.items, ledger: previous.scope === scope ? previous.ledger : {} }));
-        const ledger = await recoveries(page.items, current);
+        const ledger = await recoveries(page.items, current, true);
         if (!ledger || !current()) return;
         setSnapshot((previous) => ({ scope, serverUnread: page.unread, items: page.items, ledger: mergeLedger(previous.scope === scope ? previous.ledger : {}, ledger) }));
         if (current()) setVerification({ scope, error: null, at: Date.now() });
@@ -78,7 +83,9 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
     if (!scope || !items.length) return;
     const id = revision.current;
     const current = () => revision.current === id && scopeRef.current === scope;
-    const ledger = await recoveries(items, current);
+    // Loaded history can grow indefinitely. Inspect the top and the most
+    // recently loaded rows, while the badge rotates through older resources.
+    const ledger = await recoveries(items.length > 16 ? [...items.slice(0, 8), ...items.slice(-8)] : items, current);
     if (ledger && current()) setSnapshot((previous) => previous.scope === scope
       ? { ...previous, ledger: mergeLedger(previous.ledger, ledger) }
       : { scope, serverUnread: null, items: [], ledger });

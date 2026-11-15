@@ -1,11 +1,10 @@
-import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ApiError, messageOf } from '@/api';
 import { BrandLogo } from '@/brand-logo';
 import { usePushCleanupWarning } from '@/notifications';
-import { LegalLinks } from '@/legal-links-view';
+import { LegalLinks, WebSignInLink } from '@/legal-links-view';
 import { useSession } from '@/session';
 import { useV2Theme } from '@/theme';
 
@@ -16,15 +15,20 @@ export default function SignIn() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [ssoRequired, setSsoRequired] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function submit() {
     if (!email.trim() || !password) return setError('Enter your email and password.');
-    setBusy(true); setError('');
+    if (busy) return;
+    setBusy(true); setError(''); setSsoRequired(false);
     try {
-      const response = await login(email, password);
-      if (response.mfaRequired) router.push('/verify');
-    } catch (err) { setError(err instanceof ApiError && err.code === 'SSO_REQUIRED' ? 'This organization requires single sign-on, which Klimate Mobile does not yet support. Contact your organization administrator or use the web app.' : messageOf(err)); }
+      await login(email, password);
+    } catch (err) {
+      const required = err instanceof ApiError && err.code === 'SSO_REQUIRED';
+      setSsoRequired(required);
+      setError(required ? 'Sign in to this organization on the web using single sign-on.' : messageOf(err));
+    }
     finally { setBusy(false); }
   }
 
@@ -40,6 +44,7 @@ export default function SignIn() {
           <Text style={[styles.label, { color: colors.ink }]}>Password</Text>
           <TextInput accessibilityLabel="Password" secureTextEntry autoComplete="current-password" value={password} onChangeText={setPassword} placeholder="Your password" placeholderTextColor={colors.muted} style={[styles.input, { borderColor: colors.line, backgroundColor: colors.cardRaised, color: colors.ink }]} onSubmitEditing={submit} />
           {!!error && <Text accessibilityLiveRegion="assertive" style={[styles.error, { color: colors.down }]}>{error}</Text>}
+          {ssoRequired && <WebSignInLink />}
           <Pressable accessibilityRole="button" accessibilityState={{ busy, disabled: busy }} onPress={submit} disabled={busy} style={({ pressed }) => [styles.button, { backgroundColor: colors.navy }, pressed && { opacity: .86 }, busy && { opacity: .7 }]}>{busy ? <ActivityIndicator color={colors.onStatus} /> : <Text style={[styles.buttonText, { color: colors.onStatus }]}>Continue securely</Text>}</Pressable>
         </View>
         <LegalLinks />

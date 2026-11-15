@@ -1,15 +1,15 @@
-import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { TextInputInstance } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { messageOf } from '@/api';
+import { WebSignInLink } from '@/legal-links-view';
 import { useSession } from '@/session';
 import { useV2Theme } from '@/theme';
 
 export default function Verify() {
   const { colors } = useV2Theme();
-  const { pendingLoginChallenge, verify } = useSession();
+  const { pendingLoginChallenge, verify, signOut } = useSession();
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -32,22 +32,19 @@ export default function Verify() {
     return () => { subscription.remove(); if (focusTimer.current) clearTimeout(focusTimer.current); };
   }, [pendingLoginChallenge, showKeyboard]);
   async function submit() {
+    if (busy) return;
     if (code.trim().length < 6) return setError('Enter the code from your authenticator, or a recovery code.');
     setBusy(true); setError('');
-    try { await verify(code.trim()); router.replace('/(tabs)'); }
+    try { await verify(code.trim()); }
     catch (err) { setError(messageOf(err)); }
     finally { setBusy(false); }
   }
-  useEffect(() => {
-    if (!pendingLoginChallenge) router.replace('/sign-in');
-  }, [pendingLoginChallenge]);
-
   if (!pendingLoginChallenge) return null;
 
   return <SafeAreaView style={[styles.safe, { backgroundColor: colors.canvas }]}><KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === 'ios' ? 'padding' : undefined}><ScrollView contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled">
-    <Pressable accessibilityRole="button" accessibilityLabel="Back to sign in" onPress={() => router.back()} style={styles.backButton}><Text style={[styles.back, { color: colors.blue }]}>‹ Back</Text></Pressable>
-    <View style={styles.content}><Text style={[styles.eyebrow, { color: colors.blue }]}>TWO-STEP VERIFICATION</Text><Text style={[styles.title, { color: colors.ink }]}>{pendingLoginChallenge.mfaEnrollmentRequired ? 'Set up your authenticator' : 'Open your authenticator'}</Text><Text style={[styles.detail, { color: colors.muted }]}>{pendingLoginChallenge.mfaEnrollmentRequired ? 'Complete authenticator setup in Klimate on the web, then sign in here again.' : `Enter the current authenticator code for ${pendingLoginChallenge.email}, or use a recovery code.`}</Text>
-      {!pendingLoginChallenge.mfaEnrollmentRequired && <><TextInput ref={codeInput} accessibilityLabel="Authenticator or recovery code" autoFocus autoCapitalize="characters" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={32} value={code} onChangeText={setCode} style={[styles.code, { backgroundColor: colors.card, borderColor: colors.line, color: colors.ink }]} onSubmitEditing={submit} /><Pressable accessibilityRole="button" accessibilityLabel="Show keyboard for verification code" onPress={() => showKeyboard()} style={styles.keyboardAction}><Text style={[styles.keyboardActionText, { color: colors.blue }]}>Use keyboard to enter code</Text></Pressable></>}
+    <Pressable accessibilityRole="button" onPress={() => void signOut().catch(() => undefined)} style={styles.backButton}><Text style={[styles.back, { color: colors.blue }]}>‹ Back to sign in</Text></Pressable>
+    <View style={styles.content}><Text style={[styles.eyebrow, { color: colors.blue }]}>TWO-STEP VERIFICATION</Text><Text style={[styles.title, { color: colors.ink }]}>{pendingLoginChallenge.mfaEnrollmentRequired ? 'Set up your authenticator' : 'Open your authenticator'}</Text>{pendingLoginChallenge.organization?.name && <Text style={[styles.detail, { color: colors.ink }]}>Switch to {pendingLoginChallenge.organization.name}</Text>}<Text style={[styles.detail, { color: colors.muted }]}>{pendingLoginChallenge.mfaEnrollmentRequired ? 'Complete authenticator setup in Klimate on the web, then sign in here again.' : `Enter the current authenticator code for ${pendingLoginChallenge.email}, or use a recovery code.`}</Text>
+      {pendingLoginChallenge.mfaEnrollmentRequired ? <WebSignInLink /> : <><TextInput ref={codeInput} accessibilityLabel="Authenticator or recovery code" autoFocus autoCapitalize="characters" autoComplete="one-time-code" textContentType="oneTimeCode" maxLength={32} value={code} onChangeText={setCode} style={[styles.code, { backgroundColor: colors.card, borderColor: colors.line, color: colors.ink }]} onSubmitEditing={submit} /><Pressable accessibilityRole="button" accessibilityLabel="Show keyboard for verification code" onPress={() => showKeyboard()} style={styles.keyboardAction}><Text style={[styles.keyboardActionText, { color: colors.blue }]}>Use keyboard to enter code</Text></Pressable></>}
       {!!error && <Text accessibilityLiveRegion="assertive" style={[styles.error, { color: colors.down }]}>{error}</Text>}
       {!pendingLoginChallenge.mfaEnrollmentRequired && <Pressable accessibilityRole="button" accessibilityState={{ busy, disabled: busy }} onPress={submit} disabled={busy} style={[styles.button, { backgroundColor: colors.navy }]}>{busy ? <ActivityIndicator color={colors.onStatus} /> : <Text style={[styles.buttonText, { color: colors.onStatus }]}>Verify and open Klimate</Text>}</Pressable>}
     </View>

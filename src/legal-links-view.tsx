@@ -1,8 +1,19 @@
 import { useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import { PRIVACY_POLICY_URL, PRODUCT_OWNER, SUPPORT_EMAIL, SUPPORT_URL } from './legal-links';
+import { PRIVACY_POLICY_URL, PRODUCT_OWNER, SUPPORT_EMAIL, SUPPORT_URL, WEB_SIGN_IN_URL } from './legal-links';
 import { useV2Theme } from './theme';
 import { spacing, typography } from './tokens';
+
+export function WebSignInLink() {
+  const { colors } = useV2Theme();
+  const [failed, setFailed] = useState(false);
+  return <>
+    <Pressable accessibilityRole="link" style={styles.link} onPress={() => void Linking.openURL(WEB_SIGN_IN_URL).catch(() => setFailed(true))}>
+      <Text style={[typography.body, { color: colors.blue }]}>Open Klimate on the web</Text>
+    </Pressable>
+    {failed && <Text selectable accessibilityLiveRegion="polite" style={[typography.metadata, { color: colors.muted }]}>Visit {WEB_SIGN_IN_URL} to sign in.</Text>}
+  </>;
+}
 
 export function LegalLinks() {
   const { colors } = useV2Theme();

@@ -2,11 +2,10 @@ import * as SecureStore from 'expo-secure-store';
 import { createContext, type PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
 import { retirePushSession, setPushSession, syncAppBadge } from './notifications';
-import { authenticatedRequest, SessionAuthority } from './session-authority';
+import { authenticatedRequest, SessionAuthority, type PendingLoginChallenge } from './session-authority';
 import type { LoginChallenge, Session } from './types';
 
 const SESSION_KEY = 'klimate.session.v1';
-type PendingLoginChallenge = LoginChallenge & { email: string };
 type SessionContextValue = {
   session: Session | null;
   authority: SessionAuthority;
@@ -15,7 +14,7 @@ type SessionContextValue = {
   login(email: string, password: string): Promise<LoginChallenge>;
   verify(code: string): Promise<void>;
   refresh(): Promise<Session>;
-  switchOrganization(tenantId: string): Promise<void>;
+  switchOrganization(tenantId: string, name?: string): Promise<void>;
   signOut(): Promise<void>;
 };
 const SessionContext = createContext<SessionContextValue | null>(null);

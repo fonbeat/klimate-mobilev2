@@ -1,4 +1,4 @@
-import type { Session } from './types';
+import type { LoginChallenge, Session } from './types';
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown): value is string => typeof value === 'string';
@@ -15,6 +15,10 @@ export function validSession(value: unknown): value is Session {
 
 export function restorableSession(value: unknown, now = Date.now()): value is Session {
   return validSession(value) && [value.refreshTokenExpiresAt, value.sessionExpiresAt].every((expiry) => !expiry || Date.parse(expiry) > now);
+}
+
+export function validMfaChallenge(value: unknown): value is LoginChallenge & { mfaChallengeToken: string } {
+  return object(value) && value.mfaRequired === true && text(value.mfaChallengeToken) && !!value.mfaChallengeToken.trim();
 }
 
 type Shape = string | { [key: string]: Shape } | [Shape];
@@ -61,8 +65,8 @@ function validDatabase(value: unknown) {
 /** Validate fields consumed directly by screens. Additive server fields remain allowed. */
 export function validResponse(path: string, value: unknown): boolean {
   const route = path.split('?')[0];
-  if (route === '/v2/sessions/login') return validSession(value) || (object(value) && value.mfaRequired === true && text(value.mfaChallengeToken) && !!value.mfaChallengeToken);
-  if (['/v2/sessions/refresh', '/v2/sessions/switch', '/v2/sessions/mfa/verify'].includes(route)) return validSession(value);
+  if (route === '/v2/sessions/login' || route === '/v2/sessions/switch') return validSession(value) || validMfaChallenge(value);
+  if (route === '/v2/sessions/refresh' || route === '/v2/sessions/mfa/verify') return validSession(value);
   if (!object(value) && !Array.isArray(value)) return false;
   if (/^\/v3\/cloudMonitors\/[^/]+\/report$/.test(route)) return validCloud(value);
   if (/^\/v3\/databaseMonitors\/[^/]+\/report$/.test(route)) return validDatabase(value);

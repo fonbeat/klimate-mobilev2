@@ -30,33 +30,50 @@ export function inboxItems(items: NotificationInboxItem[], unreadOnly: boolean, 
   return unreadOnly ? items.filter((item) => !item.read && !recovered(item)) : items;
 }
 
-export async function readUnreadInbox(read: InboxRead, current: () => boolean, head?: NotificationInboxPage) {
-  const items = new Map<string, NotificationInboxItem>();
-  let offset = 0;
-  let unread = 0;
-  do {
-    const page = offset === 0 && head ? head : await read<NotificationInboxPage>(`/v2/notifications?offset=${offset}&limit=100&unreadOnly=true`);
+export function unreadInboxPath(offset: number) {
+  return `/v2/notifications?offset=${offset}&limit=100&unreadOnly=true`;
+}
+
+export async function readUnreadInbox(read: InboxRead, current: () => boolean, head?: NotificationInboxPage, budget = Infinity, resume?: { items: NotificationInboxItem[]; offset: number }) {
+  const items = new Map(resume?.items.map((item) => [item.id, item]));
+  let offset = resume?.offset ?? 0;
+  let unread = head?.unread ?? 0;
+  for (let requests = 0; requests < budget && current(); requests++) {
+    const page = offset === 0 && head ? head : await read<NotificationInboxPage>(unreadInboxPath(offset));
     if (!current()) return undefined;
+    // A changed unread count or overlapping page means offsets shifted in-flight.
+    if (head && page.unread !== head.unread) return { items: head.records, unread: head.unread, offset: undefined };
     unread = page.unread;
     const previous = items.size;
     for (const item of page.records) items.set(item.id, item);
     offset += page.records.length;
-    if (!page.records.length || items.size === previous || offset >= page.total) break;
-  } while (current());
-  return current() ? { items: [...items.values()], unread } : undefined;
+    if (items.size - previous !== page.records.length && head) return { items: head.records, unread: head.unread, offset: undefined };
+    if (!page.records.length || items.size === previous || offset >= page.total) return { items: [...items.values()], unread, offset: undefined };
+  }
+  return current() ? { items: [...items.values()], unread, offset } : undefined;
+}
+
+export function recoveryWindow<T>(pending: T[], olderOffset: number) {
+  const recent = pending.slice(0, 8);
+  const olderCount = pending.length - recent.length;
+  if (olderCount <= 8) return { selected: pending, next: 0 };
+  const start = olderOffset % olderCount;
+  const older = Array.from({ length: 8 }, (_, index) => pending[recent.length + ((start + index) % olderCount)]);
+  return { selected: [...recent, ...older], next: (start + older.length) % olderCount };
 }
 
 export async function checkRecoveries(items: NotificationInboxItem[], ledger: RecoveryLedger, {
-  read, load, save, current, now,
-}: { read: InboxRead; load: (key: string) => Promise<string | null>; save: (key: string, value: string) => Promise<void>; current: () => boolean; now?: number }) {
+  read, load, save, current, now, select,
+}: { read: InboxRead; load: (key: string) => Promise<string | null>; save: (key: string, value: string) => Promise<void>; current: () => boolean; now?: number; select?: <T>(rows: T[]) => T[] }) {
   const next = { ...ledger };
   const clock = () => now ?? Date.now();
   const resources = new Map<string, NotificationInboxItem[]>();
   for (const item of items) {
     const key = recoveryKey(item);
-    if (key) { const group = resources.get(key) ?? []; group.push(item); resources.set(key, group); }
+    if (key && !isRecovered(item, ledger)) { const group = resources.get(key) ?? []; group.push(item); resources.set(key, group); }
   }
-  const queue = [...resources.entries()];
+  const entries = [...resources.entries()];
+  const queue = select ? select(entries) : entries;
   // Bound parallel reads; a busy Inbox must not flood the API with reports.
   await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
     while (current()) {

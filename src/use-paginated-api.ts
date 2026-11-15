@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, messageOf } from './api';
 import { useSession } from './session';
-import { itemKey, refreshOffsets, mergeRefreshedPage } from './page-refresh';
+import { appendPage, itemKey, refreshOffsets, mergeRefreshedPage } from './page-refresh';
 import { useAuthenticatedRequest } from './use-api';
 import { sessionScope } from './session-authority';
 
@@ -35,7 +35,6 @@ export function usePaginatedApi<TPage, TItem>({ enabled = true, pageSize = 30, p
   const recordsRef = useRef(records); recordsRef.current = records;
   const totalRef = useRef(total); totalRef.current = total;
   const visible = useRef<number[]>([]);
-  const changed = useRef(false);
   const refreshRequest = useRef<() => void>(() => {});
   const viewRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visibleKey = useRef('0');
@@ -59,63 +58,67 @@ export function usePaginatedApi<TPage, TItem>({ enabled = true, pageSize = 30, p
     if (pending.current) return pending.current;
     const id = ++requestId.current;
     const operation = (async () => {
-    if (mode === 'initial') setLoading(true);
-    if (mode === 'refresh') setRefreshing(true);
-    if (mode === 'more') setLoadingMore(true);
-    try {
-      const read = requestRef.current;
-      if (mode === 'background' && changed.current) {
-        setError('The list has changed. Pull down to refresh the latest items.');
-        return;
-      }
-      const offsets = mode === 'background' ? refreshOffsets(visible.current, recordsRef.current.length, pageSize) : [offset];
-      let nextItems = recordsRef.current;
-      let nextTotal = totalRef.current;
-      for (const pageOffset of offsets) {
-        const page = await read<TPage>(path(pageOffset, pageSize));
-        if (requestId.current !== id) return;
-        pageCheckedAt.current.set(pageOffset, Date.now());
-        const incoming = selectItems(page);
-        const count = selectTotal(page);
-        if (!incoming.length && pageOffset < count) throw new ApiError('Klimate returned an incomplete list. Pull down to try again.', 502, 'INVALID_RESPONSE');
-        const loadedKeys = mode === 'more' ? new Set(nextItems.map(itemKey)) : null;
-        if (mode === 'more' && (count !== nextTotal || incoming.some((item) => loadedKeys!.has(itemKey(item))))) {
-          changed.current = true;
-          setError('The list has changed. Pull down to refresh the latest items.');
-          return;
-        }
-        onPage?.(page);
-        if (mode === 'background') {
-          const merged = mergeRefreshedPage(nextItems, incoming, pageOffset, count, nextTotal, pageSize);
-          if (!merged) {
-            changed.current = true;
-            setError('The list has changed. Pull down to refresh the latest items.');
-            return;
+      if (mode === 'initial') setLoading(true);
+      if (mode === 'refresh') setRefreshing(true);
+      if (mode === 'more') setLoadingMore(true);
+      try {
+        const read = requestRef.current;
+        const readPage = async (pageOffset: number) => {
+          const page = await read<TPage>(path(pageOffset, pageSize));
+          if (requestId.current !== id) return;
+          const incoming = selectItems(page);
+          const count = selectTotal(page);
+          if (!incoming.length && pageOffset < count) throw new ApiError('Klimate returned an incomplete list. Pull down to try again.', 502, 'INVALID_RESPONSE');
+          pageCheckedAt.current.set(pageOffset, Date.now());
+          return { incoming, count, page };
+        };
+        const offsets = mode === 'background' ? refreshOffsets(visible.current, recordsRef.current.length, pageSize) : [offset];
+        let nextItems = recordsRef.current;
+        let nextTotal = totalRef.current;
+        let head: Awaited<ReturnType<typeof readPage>>;
+        for (const pageOffset of offsets) {
+          const incomingPage = await readPage(pageOffset);
+          if (!incomingPage) return;
+          if (pageOffset === 0) head = incomingPage;
+          const { incoming, count, page } = incomingPage;
+          let merged: TItem[] | null = incoming;
+          if (mode === 'background') merged = mergeRefreshedPage(nextItems, incoming, pageOffset, count, nextTotal, pageSize);
+          if (mode === 'more') merged = appendPage(nextItems, incoming, count, nextTotal);
+          if (merged === null) {
+            // A shifted offset invalidates the tail. Keep the verified head
+            // and resume pagination from it instead of freezing stale rows.
+            const freshHead = head ?? await readPage(0);
+            if (!freshHead) return;
+            nextItems = freshHead.incoming;
+            nextTotal = freshHead.count;
+            pageCheckedAt.current.clear();
+            pageCheckedAt.current.set(0, Date.now());
+            onPage?.(freshHead.page);
+            break;
           }
           nextItems = merged;
-        } else nextItems = mode === 'more' ? [...nextItems, ...incoming] : incoming;
-        nextTotal = count;
+          nextTotal = count;
+          onPage?.(page);
+        }
+        dataScope.current = dataKey;
+        recordsRef.current = nextItems;
+        totalRef.current = nextTotal;
+        setRecords(nextItems);
+        setTotal(nextTotal);
+        setError(null);
+      } catch (caught) {
+        if (requestId.current !== id) return;
+        setError(messageOf(caught));
+        if (caught instanceof ApiError && (caught.status === 401 || caught.status === 403 || caught.code === 'INVALID_RESPONSE')) {
+          recordsRef.current = []; totalRef.current = 0; setRecords([]); setTotal(0);
+        }
+      } finally {
+        if (requestId.current === id) {
+          setLoading(false);
+          setRefreshing(false);
+          setLoadingMore(false);
+        }
       }
-      dataScope.current = dataKey;
-      recordsRef.current = nextItems;
-      totalRef.current = nextTotal;
-      setRecords(nextItems);
-      setTotal(nextTotal);
-      setError(null);
-      if (mode !== 'background') changed.current = false;
-    } catch (caught) {
-      if (requestId.current !== id) return;
-      setError(messageOf(caught));
-      if (caught instanceof ApiError && (caught.status === 401 || caught.status === 403 || caught.code === 'INVALID_RESPONSE')) {
-        recordsRef.current = []; totalRef.current = 0; setRecords([]); setTotal(0);
-      }
-    } finally {
-      if (requestId.current === id) {
-        setLoading(false);
-        setRefreshing(false);
-        setLoadingMore(false);
-      }
-    }
     })();
     pending.current = operation;
     void operation.finally(() => { if (pending.current === operation) pending.current = null; }).catch(() => undefined);
@@ -126,7 +129,7 @@ export function usePaginatedApi<TPage, TItem>({ enabled = true, pageSize = 30, p
   useEffect(() => {
     requestId.current += 1;
     pending.current = null;
-    recordsRef.current = []; totalRef.current = 0; visible.current = []; visibleKey.current = '0'; changed.current = false; pageCheckedAt.current.clear();
+    recordsRef.current = []; totalRef.current = 0; visible.current = []; visibleKey.current = '0'; pageCheckedAt.current.clear();
     setRefreshing(false);
     setLoadingMore(false);
     setRecords([]); setTotal(0); setError(null);
@@ -151,7 +154,7 @@ export function usePaginatedApi<TPage, TItem>({ enabled = true, pageSize = 30, p
     onViewableItemsChanged,
     records: visibleRecords, total: visibleTotal, loading, refreshing, loadingMore, error, hasMore,
     setRecords, invalidate, reload: () => requestPage(0, 'refresh'), refreshVisible: () => requestPage(0, 'background'),
-    loadMore: () => { if (!loading && !refreshing && !loadingMore && hasMore && !changed.current) void requestPage(records.length, 'more'); },
+    loadMore: () => { if (!loading && !refreshing && !loadingMore && hasMore) void requestPage(records.length, 'more'); },
   };
 }
 

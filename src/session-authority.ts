@@ -1,5 +1,5 @@
 import { ApiError, type api } from './api.ts';
-import { restorableSession, validSession } from './response-validation.ts';
+import { restorableSession, validMfaChallenge, validSession } from './response-validation.ts';
 import type { LoginChallenge, Session } from './types';
 
 export class SessionChangedError extends Error {
@@ -16,13 +16,13 @@ export function serialQueue() {
   };
 }
 
-type Challenge = LoginChallenge & { email: string };
+export type PendingLoginChallenge = LoginChallenge & { email: string; organization?: { id: string; name?: string } };
 type Options = {
   read: typeof api;
   restore: () => Promise<string | null>;
   save: (session: Session | null) => Promise<void>;
   changed: (session: Session | null) => void;
-  challenge: (challenge: Challenge | null) => void;
+  challenge: (challenge: PendingLoginChallenge | null) => void;
   retire: (session: Session) => Promise<void>;
   discard: (session: Session) => Promise<void>;
 };
@@ -32,7 +32,8 @@ type Options = {
 export class SessionAuthority {
   private value: Session | null = null;
   private generation = 0;
-  private pendingChallenge: Challenge | null = null;
+  private pendingChallenge: PendingLoginChallenge | null = null;
+  private switching?: number;
   private mutate = serialQueue();
   private storage = serialQueue();
   private refreshing?: { generation: number; operation: Promise<Session> };
@@ -46,6 +47,10 @@ export class SessionAuthority {
     return { current, session: () => { if (!current()) throw new SessionChangedError(); return this.value!; } };
   };
   private assert(generation: number) { if (generation !== this.generation) throw new SessionChangedError(); }
+  invalidateAuthentication = () => {
+    // The switch can revoke the old token before the response reaches the phone.
+    if (this.switching !== this.generation) void this.signOut().catch(() => undefined);
+  };
   private publish(next: Session | null) {
     if (sessionScope(next) !== sessionScope(this.value)) this.generation++;
     this.value = next;
@@ -93,7 +98,7 @@ export class SessionAuthority {
       if (challenge.accessToken && challenge.refreshToken) await this.received(challenge as Session, generation);
       else {
         this.assert(generation);
-        if (!challenge.mfaRequired || !challenge.mfaChallengeToken) throw new Error('Klimate returned an unsupported sign-in response. Please try again.');
+        if (!validMfaChallenge(challenge)) throw new Error('Klimate returned an unsupported sign-in response. Please try again.');
         this.pendingChallenge = { ...challenge, email: normalized };
         this.options.challenge(this.pendingChallenge);
       }
@@ -105,9 +110,13 @@ export class SessionAuthority {
     const challenge = this.pendingChallenge;
     return this.mutate(async () => {
       this.assert(generation);
-      if (!challenge?.mfaChallengeToken) throw new Error('Your verification session has expired. Sign in again.');
+      if (!challenge?.mfaChallengeToken || challenge !== this.pendingChallenge) throw new Error('Your verification session has expired. Sign in again.');
       if (challenge.mfaEnrollmentRequired) throw new Error('Set up your authenticator in Klimate on the web, then sign in here.');
       const next = await this.options.read<Session>('/v2/sessions/mfa/verify', { method: 'POST', body: JSON.stringify({ token: challenge.mfaChallengeToken, code }) });
+      if (challenge.organization && next.tenantId !== challenge.organization.id) {
+        if (validSession(next)) void this.options.discard(next).catch(() => undefined);
+        throw new ApiError('Klimate returned a session for a different organization. Sign in again.', 502, 'INVALID_RESPONSE');
+      }
       await this.received(next, generation);
       this.pendingChallenge = null;
       this.options.challenge(null);
@@ -133,28 +142,37 @@ export class SessionAuthority {
     void operation.finally(() => { if (this.refreshing?.operation === operation) this.refreshing = undefined; }).catch(() => undefined);
     return operation;
   };
-  switchOrganization = (tenantId: string) => {
+  switchOrganization = (tenantId: string, name?: string) => {
     const generation = this.generation;
     return this.mutate(async () => {
       this.assert(generation);
       if (!this.value || !tenantId || tenantId === this.value.tenantId) return;
-      const send = () => this.options.read<Session>('/v2/sessions/switch', { method: 'POST', token: this.value!.accessToken, body: JSON.stringify({ tenantId, refreshToken: this.value!.refreshToken }) });
-      let next: Session;
-      try { next = await send(); }
-      catch (error) {
-        if (!(error instanceof ApiError) || error.code !== 'ACCESS_TOKEN_EXPIRED' || error.status !== 401) {
-          if (generation === this.generation && error instanceof ApiError && error.status === 401) void this.signOut().catch(() => undefined);
-          throw error;
-        }
-        await this.refreshNow(generation);
-        this.assert(generation);
+      this.switching = generation;
+      try {
+        const send = () => this.options.read<Session | LoginChallenge>('/v2/sessions/switch', { method: 'POST', token: this.value!.accessToken, body: JSON.stringify({ tenantId, refreshToken: this.value!.refreshToken }) });
+        let next: Session | LoginChallenge;
         try { next = await send(); }
-        catch (second) {
-          if (generation === this.generation && second instanceof ApiError && second.status === 401) void this.signOut().catch(() => undefined);
-          throw second;
+        catch (error) {
+          if (!(error instanceof ApiError) || error.code !== 'ACCESS_TOKEN_EXPIRED' || error.status !== 401) throw error;
+          await this.refreshNow(generation);
+          this.assert(generation);
+          next = await send();
         }
-      }
-      await this.received(next, generation);
+        if (validMfaChallenge(next) && !validSession(next)) {
+          this.assert(generation);
+          const previous = this.value!;
+          this.pendingChallenge = { ...next, email: previous.user.email, organization: { id: tenantId, name } };
+          this.options.challenge(this.pendingChallenge);
+          this.publish(null);
+          void this.options.retire(previous).catch(() => undefined);
+          await this.storage(() => this.options.save(null));
+          return;
+        }
+        await this.received(next as Session, generation);
+      } catch (error) {
+        if (generation === this.generation && error instanceof ApiError && error.status === 401) void this.signOut().catch(() => undefined);
+        throw error;
+      } finally { this.switching = undefined; }
     });
   };
   signOut = async () => {
@@ -176,7 +194,7 @@ export async function authenticatedRequest<T>(authority: SessionAuthority, lease
   catch (error) {
     if (!lease.current()) throw new SessionChangedError();
     if (!(error instanceof ApiError) || error.status !== 401 || error.code !== 'ACCESS_TOKEN_EXPIRED') {
-      if (error instanceof ApiError && error.status === 401) void authority.signOut().catch(() => undefined);
+      if (error instanceof ApiError && error.status === 401) authority.invalidateAuthentication();
       throw error;
     }
     try {
@@ -185,7 +203,7 @@ export async function authenticatedRequest<T>(authority: SessionAuthority, lease
     } catch (second) {
       // Local invalidation is synchronous. Do not await remote push retirement
       // here: this request may itself be inside the push mutation queue.
-      if (lease.current() && second instanceof ApiError && second.status === 401) void authority.signOut().catch(() => undefined);
+      if (lease.current() && second instanceof ApiError && second.status === 401) authority.invalidateAuthentication();
       throw second;
     }
   }

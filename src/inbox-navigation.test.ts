@@ -19,12 +19,16 @@ test('Inbox has one unambiguous root route, not a duplicate hidden tab', () => {
   assert.equal(tabs.includes('name="notifications"'), false);
 });
 
-test('Overview bell opens the root Inbox and closing it returns to the previous screen', () => {
+test('Overview bell opens the root Inbox on Active issues and closing it returns to the previous screen', () => {
   const overview = readFileSync(new URL('(tabs)/index.tsx', app), 'utf8');
-  assert.ok(overview.includes("router.push('/notifications')"));
+  assert.match(overview, /router\.push\(\{ pathname: '\/notifications', params: \{ filter: 'active' \} \}\)/);
   const route = readFileSync(new URL('notifications.tsx', app), 'utf8');
   assert.ok(route.includes("from '@/notification-inbox'"));
   const inbox = readFileSync(new URL('./notification-inbox.tsx', import.meta.url), 'utf8');
+  assert.match(inbox, /initialFilter = filter === 'active' \? 'Active issues' : filter === 'unread' \? 'Unread' : 'All'/);
+  assert.match(inbox, /useState\(initialFilter\)/);
+  assert.match(inbox, /options=\{\['Active issues', 'Unread', 'All'\]\}/);
+  assert.match(inbox, /filter === 'Active issues' \? <InboxActiveIssues header=\{header\} \/> : <InboxMessages header=\{header\} filter=\{filter\} \/>/);
   assert.match(inbox, /accessibilityLabel="Close Inbox" onPress=\{\(\) => router\.back\(\)\}/);
 });
 

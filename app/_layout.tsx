@@ -4,6 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { SessionProvider, useSession } from '@/session';
 import { useNotificationNavigation, usePushRegistration } from '@/notifications';
+import { sessionScope } from '@/session-authority';
+import { ForegroundOutageBanner } from '@/foreground-outage-banner';
 import { useV2Theme } from '@/theme';
 import { StatusViewProvider } from '@/status-view';
 import { AppearanceProvider, useAppearance } from '@/appearance';
@@ -14,17 +16,20 @@ import { AlertSoundsProvider } from '@/alert-sounds';
 void SplashScreen.preventAutoHideAsync();
 
 function Navigation() {
-  const { session, loading } = useSession();
+  const { session, loading, pendingLoginChallenge } = useSession();
   const { loading: appearanceLoading } = useAppearance();
   const { colors, scheme } = useV2Theme();
-  usePushRegistration(session?.accessToken);
-  useNotificationNavigation(!!session);
+  const scope = sessionScope(session);
+  usePushRegistration(scope);
+  useNotificationNavigation(scope, !loading && !appearanceLoading);
   useEffect(() => { if (!loading && !appearanceLoading) void SplashScreen.hideAsync(); }, [loading, appearanceLoading]);
   if (loading || appearanceLoading) return null;
   return (
     <><StatusBar style={scheme === 'dark' ? 'light' : 'dark'} /><Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.canvas } }}>
-      <Stack.Protected guard={!session}>
+      <Stack.Protected guard={!session && !pendingLoginChallenge}>
         <Stack.Screen name="sign-in" />
+      </Stack.Protected>
+      <Stack.Protected guard={!session && !!pendingLoginChallenge}>
         <Stack.Screen name="verify" />
       </Stack.Protected>
       <Stack.Protected guard={!!session}>
@@ -35,7 +40,7 @@ function Navigation() {
         <Stack.Screen name="probe/[id]" />
         <Stack.Screen name="incident/[id]" />
       </Stack.Protected>
-    </Stack></>
+    </Stack>{!!scope && <ForegroundOutageBanner key={scope} scope={scope} />}</>
   );
 }
 

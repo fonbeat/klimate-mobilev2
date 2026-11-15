@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router, type Href } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, FilterBar, ListFooter, RefreshWarning, SectionTitle, State, useResponsiveLayout } from '@/components';
 import { messageOf } from '@/api';
 import { useInboxBadge } from '@/inbox-badge';
+import { InboxActiveIssues } from '@/inbox-active-issues';
 import { inboxSummary as describeInbox } from '@/inbox-presentation';
 import { inboxItems } from '@/inbox-recovery';
 import { useSession } from '@/session';
@@ -21,15 +22,28 @@ const pageTotal = (page: NotificationInboxPage) => page.total;
 
 export default function NotificationInbox() {
   const { session } = useSession();
-  return <InboxScreen key={`${session?.user.ID}:${session?.tenantId ?? ''}`} />;
+  const { filter } = useLocalSearchParams<{ filter?: string }>();
+  const initialFilter = filter === 'active' ? 'Active issues' : filter === 'unread' ? 'Unread' : 'All';
+  return <InboxScreen key={`${session?.user.ID}:${session?.tenantId ?? ''}:${initialFilter}`} initialFilter={initialFilter} />;
 }
 
-function InboxScreen() {
+function InboxScreen({ initialFilter }: { initialFilter: string }) {
+  const { colors } = useV2Theme();
+  const [filter, setFilter] = useState(initialFilter);
+  const header = <View style={styles.header}>
+    <View style={styles.navigation}><Pressable accessibilityRole="button" accessibilityLabel="Close Inbox" onPress={() => router.back()} style={({ pressed }) => [styles.close, { borderColor: colors.line, backgroundColor: colors.card }, pressed && styles.pressed]}><Ionicons name="close" size={25} color={colors.ink} /></Pressable><Text accessibilityRole="header" style={[styles.navigationTitle, { color: colors.ink }]}>Inbox</Text><View style={styles.navigationSpacer} /></View>
+    <FilterBar options={['Active issues', 'Unread', 'All']} value={filter} onChange={setFilter} label="Inbox view" />
+  </View>;
+  return <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
+    {filter === 'Active issues' ? <InboxActiveIssues header={header} /> : <InboxMessages header={header} filter={filter} />}
+  </SafeAreaView>;
+}
+
+function InboxMessages({ header, filter }: { header: ReactElement; filter: string }) {
   const { colors } = useV2Theme();
   const responsive = useResponsiveLayout();
   const request = useAuthenticatedRequest();
   const { unread: sharedUnread, error: badgeError, lastVerifiedAt, refresh: refreshBadge, inspect, recovered, invalidate: invalidateBadge, recordRead } = useInboxBadge();
-  const [filter, setFilter] = useState('All');
   const unread = sharedUnread ?? 0;
   const inboxSummary = describeInbox(sharedUnread, badgeError);
   const [actionError, setActionError] = useState('');
@@ -89,18 +103,18 @@ function InboxScreen() {
     finally { mutating.current = false; setMarkingAll(false); }
   };
 
-  return <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><FlatList onViewableItemsChanged={result.onViewableItemsChanged}
+  return <FlatList onViewableItemsChanged={result.onViewableItemsChanged}
     data={records}
     extraData={recovered}
     keyExtractor={(item) => item.id}
     contentContainerStyle={[styles.content, { paddingHorizontal: responsive.gutter }, !result.records.length && styles.grow]}
     ItemSeparatorComponent={() => <View style={{ height: layout.listGap }} />}
     ListHeaderComponent={<View style={styles.header}>
-      <View style={styles.navigation}><Pressable accessibilityRole="button" accessibilityLabel="Close Inbox" onPress={() => router.back()} style={({ pressed }) => [styles.close, { borderColor: colors.line, backgroundColor: colors.card }, pressed && styles.pressed]}><Ionicons name="close" size={25} color={colors.ink} /></Pressable><Text accessibilityRole="header" style={[styles.navigationTitle, { color: colors.ink }]}>Inbox</Text><View style={styles.navigationSpacer} /></View>
-      <View style={styles.intro}><Text style={[styles.eyebrow, { color: colors.blue }]}>OPERATIONAL ALERTS</Text><Text style={[styles.detail, { color: colors.muted }]}>{inboxSummary}</Text></View>
-      <RefreshWarning error={badgeError} lastVerifiedAt={lastVerifiedAt} />
+      {header}
       <SectionTitle>Messages</SectionTitle>
-      <View style={styles.actions}><FilterBar options={['All', 'Unread']} value={filter} onChange={setFilter} label="Notification status" />{unread > 0 && <View style={styles.markAll}><Button label="Mark all read" variant="secondary" icon="checkmark-done-outline" busy={markingAll} onPress={() => void markAllRead()} /></View>}</View>
+      <Text style={[styles.detail, { color: colors.muted }]}>{inboxSummary}</Text>
+      <RefreshWarning error={badgeError} lastVerifiedAt={lastVerifiedAt} />
+      {unread > 0 && <View style={styles.markAll}><Button label="Mark all read" variant="secondary" icon="checkmark-done-outline" busy={markingAll} onPress={() => void markAllRead()} /></View>}
       {!!actionError && <Text accessibilityLiveRegion="assertive" style={[styles.error, { color: colors.down }]}>{actionError}</Text>}{!!result.records.length && <RefreshWarning error={result.error} />}
     </View>}
     ListHeaderComponentStyle={styles.headerSpacing}
@@ -111,7 +125,7 @@ function InboxScreen() {
     onRefresh={reload}
     onEndReached={result.loadMore}
     onEndReachedThreshold={.45}
-  /></SafeAreaView>;
+  />;
 }
 
 function NotificationCard({ item, recovered, onPress }: { item: NotificationInboxItem; recovered: boolean; onPress: () => void }) {
@@ -135,11 +149,8 @@ const styles = StyleSheet.create({
   navigationTitle: typography.sectionTitle,
   navigationSpacer: { width: 48 },
   close: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  intro: { paddingVertical: spacing.md, gap: spacing.xs },
-  eyebrow: typography.eyebrow,
   detail: typography.body,
   headerSpacing: { marginBottom: spacing.lg },
-  actions: { gap: spacing.md },
   markAll: { alignSelf: 'flex-start', minWidth: 170 },
   error: typography.metadata,
   card: { minHeight: 104, flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg, borderRadius: radii.lg },

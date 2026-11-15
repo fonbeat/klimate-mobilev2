@@ -25,6 +25,31 @@ test('unchanged unread history reads only the newest page after initial reconcil
   assert.deepEqual(f.calls, [0]);
 });
 
+test('large backlogs resume across refreshes within the total page budget', async () => {
+  const f = feed(605); const cache = new UnreadInboxCache();
+  const first = await cache.read(f.read, () => true);
+  assert.equal(first?.unread, 605);
+  assert.equal(first?.items.length, 300);
+  assert.deepEqual(f.calls, [0, 100, 200]);
+  f.calls.length = 0;
+  const second = await cache.read(f.read, () => true);
+  assert.equal(second?.items.length, 500);
+  assert.deepEqual(f.calls, [0, 300, 400]);
+  f.calls.length = 0;
+  assert.equal((await cache.read(f.read, () => true))?.items.length, 605);
+  assert.deepEqual(f.calls, [0, 500, 600]);
+});
+
+test('a changed head invalidates partial scan offsets before reconciliation resumes', async () => {
+  const f = feed(605); const cache = new UnreadInboxCache();
+  await cache.read(f.read, () => true);
+  f.set([item('new'), ...f.get()]);
+  f.calls.length = 0;
+  const result = await cache.read(f.read, () => true);
+  assert.equal(result?.items[0].id, 'new');
+  assert.deepEqual(f.calls, [0, 100, 200]);
+});
+
 test('new arrivals merge with the verified tail without re-reading all history', async () => {
   const f = feed(); const cache = new UnreadInboxCache();
   await cache.read(f.read, () => true); f.calls.length = 0;

@@ -2,6 +2,11 @@ import type { StatusView } from './status-view';
 
 export type HealthCounts = { total: number; healthy: number; down: number; attention: number; unknown: number };
 
+export function overviewActiveIssueCount(counts: HealthCounts | undefined, offlineGateways: number | undefined) {
+  if (!counts || offlineGateways === undefined) return null;
+  return counts.down + counts.attention + offlineGateways;
+}
+
 export function overviewSectionTitle(counts: HealthCounts) {
   return counts.down || counts.attention ? 'Needs attention' : counts.unknown ? 'Status unknown' : counts.total ? 'All clear' : 'Awaiting first checks';
 }

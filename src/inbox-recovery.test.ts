@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { checkRecoveries, inboxItems, isRecovered, outstandingUnread, readUnreadInbox, recoveryStorageKey, type InboxRead, type RecoveryLedger } from './inbox-recovery.ts';
+import { checkRecoveries, inboxItems, isRecovered, outstandingUnread, readUnreadInbox, recoveryStorageKey, recoveryWindow, type InboxRead, type RecoveryLedger } from './inbox-recovery.ts';
 import type { NotificationInboxItem } from './types.ts';
 
 const now = Date.parse('2026-10-26T12:00:00Z');
@@ -156,4 +156,16 @@ test('repeated or empty pagination responses terminate safely', async () => {
   assert.equal(calls, 2);
   assert.equal(page.items.length, 1);
   assert.equal(page.unread, 1000);
+});
+
+test('badge recovery gives recent alerts priority and rotates through older resources', () => {
+  const rows = Array.from({ length: 30 }, (_, i) => i);
+  const first = recoveryWindow(rows, 0);
+  const second = recoveryWindow(rows, first.next);
+  const third = recoveryWindow(rows, second.next);
+  for (const batch of [first, second, third]) {
+    assert.equal(batch.selected.length, 16);
+    assert.deepEqual(batch.selected.slice(0, 8), rows.slice(0, 8));
+  }
+  assert.equal(new Set([...first.selected, ...second.selected, ...third.selected]).size, rows.length);
 });

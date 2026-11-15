@@ -33,14 +33,13 @@ minimumReleaseAgeExclude:
 
 # Compatible security fixes for React Native / Expo tooling.
 # Remaining audit findings (do not suppress):
-# node-forge 1.4.0: no published fix, via Expo CLI certificate tooling.
-# https://github.com/advisories/GHSA-86w9-cpqp-85rv
 # zod 3.25.76: fix is 4.6.6+, but Expo CLI requires ^3.25.76.
-# Await an Expo-supported migration rather than forcing a breaking major.
+# glob and minimatch fixes also require major upgrades outside Expo's ranges.
 # https://github.com/advisories/GHSA-mrhx-c7xc-m3w5
 # deepmerge 4.3.1: low-severity Expo config tooling advisory, no published fix.
 # https://github.com/advisories/GHSA-gcqx-w48m-w2h4
 # Use trusted projects/dev-tool plugins and do not expose Metro to untrusted networks.
 overrides:
+  node-forge: 1.4.3
   shell-quote: 1.11.0
   source-map-js: 1.2.2

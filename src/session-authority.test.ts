@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ApiError, type api } from './api.ts';
-import { authenticatedRequest, SessionAuthority, SessionChangedError } from './session-authority.ts';
+import { authenticatedRequest, SessionAuthority, SessionChangedError, type PendingLoginChallenge } from './session-authority.ts';
 import type { Session } from './types.ts';
 
 const session = (tenantId = 'A', accessToken = tenantId): Session => ({ user: { ID: 'u', firstname: 'Test', lastname: 'User', email: 'test@example.invalid', role: 'owner', isOwner: true, isAdmin: true }, tenantId, accessToken, refreshToken: `r-${accessToken}` });
@@ -32,6 +32,7 @@ function harness(read?: typeof api, save?: (next: Session | null) => Promise<voi
   const published: (Session | null)[] = [];
   const retired: Session[] = [];
   const discarded: Session[] = [];
+  const challenges: (PendingLoginChallenge | null)[] = [];
   const requests: string[] = [];
   const authority = new SessionAuthority({
     read: read ?? (async <T>(path: string, init?: RequestInit) => {
@@ -40,11 +41,45 @@ function harness(read?: typeof api, save?: (next: Session | null) => Promise<voi
     }),
     restore: async () => JSON.stringify(stored),
     save: async (next) => { await save?.(next); stored = next; },
-    changed: (next) => published.push(next), challenge: () => {},
+    changed: (next) => published.push(next), challenge: (next) => challenges.push(next),
     retire: async (next) => { retired.push(next); }, discard: async (next) => { discarded.push(next); },
   });
-  return { authority, requests, retired, discarded, published, stored: () => stored };
+  return { authority, requests, retired, discarded, published, challenges, stored: () => stored };
 }
+
+test('organization MFA retires the prior session and accepts only the requested organization', async () => {
+  const response = deferred<{ mfaRequired: true; mfaChallengeToken: string }>();
+  const started = deferred<void>();
+  const h = harness(async <T>(path: string, init?: RequestInit) => {
+    if (path.endsWith('/switch')) { started.resolve(); return await response.promise as T; }
+    assert.equal(path, '/v2/sessions/mfa/verify');
+    assert.deepEqual(JSON.parse(String(init?.body)), { token: 'step-up', code: '123456' });
+    return session('B') as T;
+  });
+  await h.authority.restore();
+  const old = h.authority.capture();
+  const switching = h.authority.switchOrganization('B', 'Destination');
+  await started.promise;
+  await assert.rejects(authenticatedRequest(h.authority, old, '/v2/test', {}, async () => { throw new ApiError('Revoked', 401); }));
+  assert.equal(h.authority.get()?.tenantId, 'A');
+  response.resolve({ mfaRequired: true, mfaChallengeToken: 'step-up' });
+  await switching;
+  assert.equal(h.stored(), null);
+  assert.equal(old.current(), false);
+  assert.equal(h.retired[0].tenantId, 'A');
+  assert.deepEqual(h.challenges.at(-1)?.organization, { id: 'B', name: 'Destination' });
+  await h.authority.verify('123456');
+  assert.equal(h.stored()?.tenantId, 'B');
+  assert.equal(h.challenges.at(-1), null);
+});
+
+test('a failed SSO-required switch keeps the current session available for a web handoff', async () => {
+  const h = harness(async () => { throw new ApiError('Single sign-on required', 403, 'SSO_REQUIRED'); });
+  await h.authority.restore();
+  await assert.rejects(h.authority.switchOrganization('B'), { code: 'SSO_REQUIRED' });
+  assert.equal(h.authority.get()?.tenantId, 'A');
+  assert.deepEqual(h.retired, []);
+});
 
 test('refresh and organization switch serialize through secure-storage completion', async () => {
   const started = deferred<void>(); const release = deferred<void>();

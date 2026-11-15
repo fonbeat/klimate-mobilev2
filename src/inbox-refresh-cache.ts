@@ -1,4 +1,4 @@
-import { readUnreadInbox, type InboxRead } from './inbox-recovery.ts';
+import { readUnreadInbox, unreadInboxPath, type InboxRead } from './inbox-recovery.ts';
 import type { NotificationInboxItem, NotificationInboxPage } from './types';
 
 type Snapshot = { items: NotificationInboxItem[]; unread: number; fullAt: number };
@@ -9,11 +9,17 @@ const fingerprint = (items: NotificationInboxItem[]) => items.map((item) => `${i
  * removed. External reads, large head changes, manual refresh and expiry rescan. */
 export class UnreadInboxCache {
   private snapshot?: Snapshot;
+  private progress?: { head: string; unread: number; items: NotificationInboxItem[]; offset: number };
   private clock: () => number;
   private maxAge: number;
-  constructor(clock = Date.now, maxAge = 120_000) { this.clock = clock; this.maxAge = maxAge; }
+  private pageBudget: number;
+  constructor(clock = Date.now, maxAge = 120_000, pageBudget = 3) {
+    this.clock = clock;
+    this.maxAge = maxAge;
+    this.pageBudget = Math.max(2, pageBudget);
+  }
   async read(read: InboxRead, current: () => boolean, force = false) {
-    const head = await read<NotificationInboxPage>('/v2/notifications?offset=0&limit=100&unreadOnly=true');
+    const head = await read<NotificationInboxPage>(unreadInboxPath(0));
     if (!current()) return undefined;
     const previous = this.snapshot;
     let next: Snapshot | undefined;
@@ -29,16 +35,20 @@ export class UnreadInboxCache {
       }
     }
     if (!next) {
-      const page = await readUnreadInbox(read, current, head);
+      const headKey = fingerprint(head.records);
+      const resume = !force && this.progress?.head === headKey && this.progress.unread === head.unread ? this.progress : undefined;
+      const page = await readUnreadInbox(read, current, head, this.pageBudget - (resume ? 1 : 0), resume);
       if (!page) return undefined;
       // Never cache an incomplete scan as a complete unread snapshot.
-      next = { ...page, fullAt: page.items.length >= page.unread ? this.clock() : -Infinity };
-    }
+      this.progress = page.offset === undefined ? undefined : { head: headKey, items: page.items, unread: page.unread, offset: page.offset };
+      next = { items: page.items, unread: page.unread, fullAt: page.items.length >= page.unread ? this.clock() : -Infinity };
+    } else this.progress = undefined;
     if (!current()) return undefined;
     this.snapshot = next;
     return { items: next.items, unread: next.unread };
   }
   recordRead(id?: string) {
+    this.progress = undefined;
     if (!this.snapshot) return;
     if (!id) { this.snapshot = { items: [], unread: 0, fullAt: this.clock() }; return; }
     const present = this.snapshot.items.some((item) => item.id === id && !item.read);

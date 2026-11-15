@@ -7,9 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, FilterBar, Page, State } from '@/components';
 import { useAlertSounds } from '@/alert-sounds';
 import type { AlertSound, AlertSoundPreferences } from '@/alert-sound-controller';
-import { messageOf } from '@/api';
+import { ApiError, messageOf } from '@/api';
 import { PhoneNotifications } from '@/phone-notifications';
-import { LegalLinks } from '@/legal-links-view';
+import { LegalLinks, WebSignInLink } from '@/legal-links-view';
 import { useSession } from '@/session';
 import { radii, spacing, typography } from '@/tokens';
 import { useV2Theme } from '@/theme';
@@ -35,10 +35,20 @@ export default function Profile() {
   const { session, signOut, switchOrganization } = useSession();
   const [panel, setPanel] = useState<Panel>(null);
   const [switchingId, setSwitchingId] = useState('');
-  const [organizationError, setOrganizationError] = useState('');
+  const [organizationError, setOrganizationError] = useState<{ message: string; ssoRequired: boolean }>();
   const organizations = useApiData<SessionOrganizations>('/v2/sessions/organizations');
   const currentOrganization = useMemo(() => organizations.data?.organizations.find((item) => item.isCurrent || item.tenantId === session?.tenantId), [organizations.data, session?.tenantId]);
   const initials = `${session?.user.firstname?.[0] ?? ''}${session?.user.lastname?.[0] ?? ''}`;
+
+  const openOrganization = async (tenantId: string, name: string) => {
+    setSwitchingId(tenantId);
+    setOrganizationError(undefined);
+    try { await switchOrganization(tenantId, name); }
+    catch (error) {
+      const ssoRequired = error instanceof ApiError && error.code === 'SSO_REQUIRED';
+      setOrganizationError({ message: ssoRequired ? 'Sign in to this organization on the web using single sign-on.' : messageOf(error), ssoRequired });
+    } finally { setSwitchingId(''); }
+  };
 
   const saveSound = async (sound: keyof AlertSoundPreferences, enabled: boolean) => {
     setSoundBusy(true); setSoundMessage('');
@@ -68,19 +78,20 @@ export default function Profile() {
         {organizations.data?.organizations.map((organization) => {
           const current = organization.isCurrent || organization.tenantId === session?.tenantId;
           const switching = switchingId === organization.tenantId;
-          return <Pressable key={organization.tenantId} accessibilityRole="button" accessibilityState={{ selected: current, disabled: current || !!switchingId, busy: switching }} disabled={current || !!switchingId} onPress={() => void (async () => { setSwitchingId(organization.tenantId); setOrganizationError(''); try { await switchOrganization(organization.tenantId); } catch (error) { setOrganizationError(messageOf(error)); } finally { setSwitchingId(''); } })()} style={({ pressed }) => [styles.organizationOption, { borderColor: current ? colors.navy : colors.line, backgroundColor: current ? colors.cardRaised : colors.canvas }, pressed && styles.pressed]}>
+          return <Pressable key={organization.tenantId} accessibilityRole="button" accessibilityState={{ selected: current, disabled: current || !!switchingId, busy: switching }} disabled={current || !!switchingId} onPress={() => void openOrganization(organization.tenantId, organization.name)} style={({ pressed }) => [styles.organizationOption, { borderColor: current ? colors.navy : colors.line, backgroundColor: current ? colors.cardRaised : colors.canvas }, pressed && styles.pressed]}>
             <View style={styles.flex}><Text style={[styles.optionTitle, { color: colors.ink }]}>{organization.name}</Text><Text style={[styles.optionMeta, { color: colors.muted }]}>{organizationRoleLabel(organization.role)} · {organization.accountNo}</Text></View>
             {switching ? <ActivityIndicator color={colors.navy} /> : <Ionicons name={current ? 'checkmark-circle' : 'chevron-forward'} size={20} color={current ? colors.up : colors.muted} />}
           </Pressable>;
         })}
-        {!!organizationError && <Text accessibilityLiveRegion="assertive" style={[styles.message, { color: colors.down }]}>{organizationError}</Text>}
+        {organizationError && <Text accessibilityLiveRegion="assertive" style={[styles.message, { color: colors.down }]}>{organizationError.message}</Text>}
+        {organizationError?.ssoRequired && <WebSignInLink />}
       </View>}
     </View>
 
     <View style={[styles.group, { backgroundColor: colors.card, borderColor: colors.line }]}>
       <SettingsRow icon="notifications-outline" label="Alerts" value="Phone notifications, sounds & vibration" expanded={panel === 'alerts'} onPress={() => setPanel(panel === 'alerts' ? null : 'alerts')} />
       {panel === 'alerts' && <View style={[styles.panel, { borderTopColor: colors.line }]}>
-        <PhoneNotifications key={`${session?.user.ID}:${session?.tenantId ?? ''}`} />
+        <PhoneNotifications key={`${session?.user.ID}:${session?.tenantId ?? ''}`} organizationName={currentOrganization?.name} />
         <View style={[styles.insetSeparator, { backgroundColor: colors.line }]} />
         <Text accessibilityRole="header" style={[styles.optionTitle, { color: colors.ink }]}>While using the app</Text>
         <Text style={[styles.message, { color: colors.muted }]}>These controls only change foreground sounds and vibration—not push alerts. Preferences are saved for your account on this phone.</Text>
