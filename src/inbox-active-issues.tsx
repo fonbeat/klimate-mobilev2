@@ -1,63 +1,37 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useCallback, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
-import { Button, Card, RefreshWarning, SectionTitle, State, StatusPill, useResponsiveLayout } from './components';
-import { liveStatusPath, monitorCard, offlineGatewaysPath } from './live-status';
+import { useActiveIssues } from './active-issues-provider';
+import { Card, RefreshWarning, SectionTitle, State, StatusPill, useResponsiveLayout } from './components';
+import { monitorCard } from './live-status';
 import { useForegroundRefresh } from './use-foreground-refresh';
-import { usePaginatedApi } from './use-paginated-api';
 import { layout, spacing, typography } from './tokens';
 import { useV2Theme } from './theme';
-import type { Monitor, MonitorPage, Probe, ProbeView } from './types';
-
-const downPath = (offset: number, limit: number) => liveStatusPath('monitors', offset, limit, 'Down', '');
-const attentionPath = (offset: number, limit: number) => liveStatusPath('monitors', offset, limit, 'Attention', '');
-const monitors = (page: MonitorPage) => page.records;
-const gateways = (page: ProbeView) => page.probes;
-const total = (page: MonitorPage | ProbeView) => page.total;
-type IssueViewToken = { item: unknown; index?: number | null; section?: { key?: string } };
+import type { Monitor, Probe } from './types';
 
 export function InboxActiveIssues({ header }: { header: ReactElement }) {
   const { gutter } = useResponsiveLayout();
-  const down = usePaginatedApi({ path: downPath, items: monitors, total });
-  const attention = usePaginatedApi({ path: attentionPath, items: monitors, total });
-  const offline = usePaginatedApi({ path: offlineGatewaysPath, items: gateways, total });
-  useForegroundRefresh(() => { void down.refreshVisible(); void attention.refreshVisible(); void offline.refreshVisible(); });
-
-  const onDownVisible = down.onViewableItemsChanged;
-  const onAttentionVisible = attention.onViewableItemsChanged;
-  const onOfflineVisible = offline.onViewableItemsChanged;
-  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: IssueViewToken[] }) => {
-    onDownVisible({ viewableItems: viewableItems.filter((item) => item.index != null && item.section?.key === 'down') });
-    onAttentionVisible({ viewableItems: viewableItems.filter((item) => item.index != null && item.section?.key === 'attention') });
-    onOfflineVisible({ viewableItems: viewableItems.filter((item) => item.index != null && item.section?.key === 'offline') });
-  }, [onDownVisible, onAttentionVisible, onOfflineVisible]);
-
+  const { data, loading, error, refreshing, reload, refreshBackground } = useActiveIssues();
+  useForegroundRefresh(refreshBackground);
   const sections = [
-    { key: 'down', title: 'Monitors down', data: down.records, result: down },
-    { key: 'attention', title: 'Monitors needing attention', data: attention.records, result: attention },
-    { key: 'offline', title: 'Offline gateways', data: offline.records, result: offline },
-  ].filter(({ data, result }) => data.length > 0 || !!result.error);
-  const loading = down.loading || attention.loading || offline.loading;
-  const reload = () => { void down.reload(); void attention.reload(); void offline.reload(); };
+    { key: 'down', title: 'Monitors down', data: data?.down ?? [] },
+    { key: 'attention', title: 'Monitors needing attention', data: data?.attention ?? [] },
+    { key: 'offline', title: 'Offline gateways', data: data?.offline ?? [] },
+  ].filter((section) => section.data.length > 0);
 
   return <SectionList<Monitor | Probe>
     sections={sections}
     stickySectionHeadersEnabled={false}
     keyExtractor={(item) => 'ID' in item ? item.ID : item.id}
-    onViewableItemsChanged={onViewableItemsChanged}
     contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}
-    ListHeaderComponent={header}
+    ListHeaderComponent={<>{header}{!!data?.count && <RefreshWarning error={error} />}</>}
     ListHeaderComponentStyle={styles.headerSpacing}
     ItemSeparatorComponent={() => <View style={{ height: layout.listGap }} />}
-    ListFooterComponent={loading || !sections.length ? <State loading={loading} loadingMessage="Loading active issues…" empty="No active issues." /> : undefined}
-    renderSectionHeader={({ section }) => <SectionTitle>{section.title}</SectionTitle>}
-    renderSectionFooter={({ section: { title, data, result } }) => <View style={styles.sectionFooter}>
-      {data.length ? <RefreshWarning error={result.error} /> : <State compact error={result.error} onRetry={result.reload} />}
-      {result.hasMore && <Button label={`Load more: ${title.toLowerCase()}`} variant="secondary" busy={result.loadingMore} onPress={result.loadMore} />}
-    </View>}
+    ListEmptyComponent={<State loading={loading && !data} loadingMessage="Loading active issues…" error={error} onRetry={reload} empty={data ? 'No active issues.' : undefined} />}
+    renderSectionHeader={({ section }) => <View style={styles.sectionHeading}><SectionTitle>{section.title}</SectionTitle></View>}
     renderItem={({ item }) => <ActiveIssueCard item={item} />}
-    refreshing={down.refreshing || attention.refreshing || offline.refreshing}
+    refreshing={refreshing}
     onRefresh={reload}
   />;
 }
@@ -84,7 +58,7 @@ function ActiveIssueCard({ item }: { item: Monitor | Probe }) {
 const styles = StyleSheet.create({
   content: { width: '100%', maxWidth: layout.contentMaxWidth, alignSelf: 'center', paddingTop: spacing.sm, paddingBottom: spacing.xxxl },
   headerSpacing: { marginBottom: spacing.lg },
-  sectionFooter: { gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.md },
+  sectionHeading: { marginTop: spacing.md, marginBottom: spacing.sm },
   card: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md },
   identity: { flex: 1, gap: spacing.xs },
   pressed: { opacity: .72 },

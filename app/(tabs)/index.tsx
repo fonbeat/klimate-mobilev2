@@ -4,15 +4,14 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BrandLogo } from '@/brand-logo';
 import { Card, Page, State } from '@/components';
-import { offlineGatewaysPath } from '@/live-status';
-import { overviewActiveIssueCount, overviewIssueFilter, overviewPortrait, overviewSectionTitle, type HealthCounts } from '@/overview-presentation';
+import { useActiveIssues } from '@/active-issues-provider';
+import { overviewIssueFilter, overviewPortrait, overviewSectionTitle, type HealthCounts } from '@/overview-presentation';
 import { overviewPath, readOverview } from '@/overview-reader';
 import { useInboxBadge } from '@/inbox-badge';
 import { useSession } from '@/session';
 import { useStatusView } from '@/status-view';
 import { spacing, typography } from '@/tokens';
 import { statusColor, useV2Theme } from '@/theme';
-import type { ProbeView } from '@/types';
 import { useApiData } from '@/use-api';
 import { useForegroundRefresh } from '@/use-foreground-refresh';
 import { SwipeTab } from '@/swipe-tabs';
@@ -28,17 +27,14 @@ function MonitorOverview() {
   const { refresh: refreshInbox } = useInboxBadge();
   const { colors } = useV2Theme();
   const overview = useApiData(overviewPath, true, readOverview);
-  const offlineGateways = useApiData<ProbeView>(offlineGatewaysPath(0, 1));
-  const activeIssues = overviewActiveIssueCount(
-    overview.error ? undefined : overview.data?.counts,
-    offlineGateways.error ? undefined : offlineGateways.data?.total,
-  );
-  const issueLabel = activeIssues == null ? 'Active issue count unavailable' : `${activeIssues} active ${activeIssues === 1 ? 'issue' : 'issues'}`;
+  const active = useActiveIssues();
+  const activeIssues = active.data?.count;
+  const issueLabel = activeIssues == null ? 'Active issue count unavailable' : `${activeIssues} active ${activeIssues === 1 ? 'issue' : 'issues'}${active.error ? ', last known count' : ''}`;
   const counts = overview.data?.counts ?? { total: 0, healthy: 0, down: 0, attention: 0, unknown: 0 };
   const issues = overview.data?.issues ?? [];
   const issueCount = counts.down + counts.attention;
-  const refresh = () => { void overview.reload(); void offlineGateways.reload(); void refreshInbox(true); };
-  useForegroundRefresh(() => { void overview.refreshBackground(); void offlineGateways.refreshBackground(); void refreshInbox(); });
+  const refresh = () => { void overview.reload(); void active.reload(); void refreshInbox(true); };
+  useForegroundRefresh(() => { void overview.refreshBackground(); void active.refreshBackground(); void refreshInbox(); });
   const updatedLabel = overview.data?.lastUpdated ? formatUpdated(overview.data.lastUpdated) : '';
   const staleError = overview.error && !!overview.data;
   const issueFilter = overviewIssueFilter(counts);
@@ -48,13 +44,13 @@ function MonitorOverview() {
     router.push({ pathname: '/(tabs)/monitors', params: { statusFilter: issueFilter } });
   };
 
-  return <SwipeTab current="overview"><SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><Page refreshing={overview.refreshing || offlineGateways.refreshing} onRefresh={refresh}>
+  return <SwipeTab current="overview"><SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}><Page refreshing={overview.refreshing || active.refreshing} onRefresh={refresh}>
     <View style={styles.top}>
       <View><BrandLogo /><Text style={[styles.greeting, { color: colors.muted }]}>Hello, {session?.user.firstname}</Text></View>
       <View style={styles.topActions}>
         <Pressable accessibilityRole="button" accessibilityLabel={`Open Inbox. ${issueLabel}`} onPress={() => router.push({ pathname: '/notifications', params: { filter: 'active' } })} style={({ pressed }) => [styles.notificationButton, { backgroundColor: colors.card, borderColor: colors.line }, pressed && styles.pressed]}>
           <Ionicons name="notifications-outline" size={21} color={colors.muted} importantForAccessibility="no" />
-          {activeIssues != null && activeIssues > 0 && <View style={[styles.badge, { backgroundColor: colors.down }]}><Text style={[styles.badgeText, { color: colors.onStatus }]}>{activeIssues > 99 ? '99+' : activeIssues}</Text></View>}
+          {activeIssues != null && activeIssues > 0 && <View style={[styles.badge, { backgroundColor: colors.down }]}><Text style={[styles.badgeText, { color: colors.onStatus }]}>{activeIssues}</Text></View>}
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Open profile and preferences" onPress={() => router.push('/profile')} style={({ pressed }) => [styles.avatar, { backgroundColor: colors.cardRaised, borderColor: colors.line }, pressed && styles.pressed]}><Text style={[styles.avatarText, { color: colors.blue }]}>{session?.user.firstname?.[0]}{session?.user.lastname?.[0]}</Text></Pressable>
       </View>

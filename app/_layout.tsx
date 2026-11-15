@@ -12,6 +12,7 @@ import { AppearanceProvider, useAppearance } from '@/appearance';
 import { InboxBadgeProvider } from '@/inbox-badge';
 import { CapabilitiesProvider } from '@/capabilities';
 import { AlertSoundsProvider } from '@/alert-sounds';
+import { ActiveIssuesProvider } from '@/active-issues-provider';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -45,5 +46,5 @@ function Navigation() {
 }
 
 export default function RootLayout() {
-  return <AppearanceProvider><SessionProvider><AlertSoundsProvider><CapabilitiesProvider><InboxBadgeProvider><StatusViewProvider><Navigation /></StatusViewProvider></InboxBadgeProvider></CapabilitiesProvider></AlertSoundsProvider></SessionProvider></AppearanceProvider>;
+  return <AppearanceProvider><SessionProvider><AlertSoundsProvider><CapabilitiesProvider><InboxBadgeProvider><StatusViewProvider><ActiveIssuesProvider><Navigation /></ActiveIssuesProvider></StatusViewProvider></InboxBadgeProvider></CapabilitiesProvider></AlertSoundsProvider></SessionProvider></AppearanceProvider>;
 }

@@ -1,15 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { attentionName, overviewActiveIssueCount, overviewIssueFilter, overviewPortrait, overviewSectionTitle } from './overview-presentation.ts';
-
-test('active issue count clears as monitors and gateways recover', () => {
-  const counts = { total: 5, healthy: 2, down: 1, attention: 1, unknown: 1 };
-  assert.equal(overviewActiveIssueCount(counts, 1), 3);
-  assert.equal(overviewActiveIssueCount({ ...counts, down: 0, healthy: 3 }, 0), 1);
-  assert.equal(overviewActiveIssueCount({ ...counts, down: 0, attention: 0, healthy: 4 }, 0), 0);
-  assert.equal(overviewActiveIssueCount(counts, undefined), null);
-  assert.equal(overviewActiveIssueCount(undefined, 1), null);
-});
+import { attentionName, overviewIssueFilter, overviewPortrait, overviewSectionTitle } from './overview-presentation.ts';
 
 test('health card shortcut prioritizes down, then attention, with no shortcut for healthy or unknown-only states', () => {
   const counts = { total: 4, healthy: 2, down: 1, attention: 1, unknown: 0 };
