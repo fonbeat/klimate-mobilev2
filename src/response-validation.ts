@@ -71,6 +71,19 @@ export function validResponse(path: string, value: unknown): boolean {
   if (/^\/v3\/cloudMonitors\/[^/]+\/report$/.test(route)) return validCloud(value);
   if (/^\/v3\/databaseMonitors\/[^/]+\/report$/.test(route)) return validDatabase(value);
   let shape: Shape | undefined;
+  if (route === '/v3/status/activeIssues') {
+    if (!object(value) || !count(value.total) || !Array.isArray(value.records) || value.records.length > 100 ||
+      (value.nextCursor !== undefined && (!text(value.nextCursor) || !value.nextCursor))) return false;
+    return value.records.every((record) => object(record) && (
+      record.gateway === undefined && matches(record.monitor, monitorRow) ||
+      record.monitor === undefined && matches(record.gateway, { id: 'string', name: 'string', status: 'string' })
+    ));
+  }
+  if (route === '/v3/status/alertEvents') {
+    return object(value) && text(value.cursor) && value.cursor.length > 0 && typeof value.hasMore === 'boolean' &&
+      Array.isArray(value.events) && value.events.length <= 100 &&
+      value.events.every((event) => matches(event, { id: 'string', type: 'string', occurredAt: 'string', incidentId: 'string', resourceId: 'string' }));
+  }
   if (route === '/v2/status/monitors') shape = { records: [monitorRow], total: 'count' };
   if (route === '/v2/status/targets') shape = { records: [{ ID: 'string', label: 'string', status: 'string', tags: ['string'] }], total: 'count' };
   if (route === '/v2/status/services') shape = { records: [{ ID: 'string', label: 'string', status: 'string', metric: { kind: 'string', caption: 'string', label: 'string' } }], total: 'count' };
@@ -80,6 +93,7 @@ export function validResponse(path: string, value: unknown): boolean {
   if (route === '/v2/modules') shape = { modules: [{ key: 'string', enabled: 'boolean', available: 'boolean' }] };
   if (route === '/v2/sessions/organizations') shape = { organizations: [{ tenantId: 'string', name: 'string', role: 'string', isCurrent: 'boolean' }] };
   if (route === '/v2/incidents' || /^\/v2\/services\/[^/]+\/incidents$/.test(route)) shape = { incidents: [incidentRow], total: 'count' };
+  if (/^\/v2\/incidents\/[^/]+$/.test(route)) shape = { incident: incidentRow, startedAt: 'string', resolvedAt: 'string|null', recovery: 'string' };
   if (/^\/v2\/targets\/[^/]+\/report$/.test(route)) shape = { target: { name: 'string', address: 'string' }, summary: { health: 'string', totalMonitors: 'count', up: 'count', down: 'count', attention: 'count' }, monitors: [{ id: 'string', name: 'string', type: 'string', status: 'string', reportPath: 'string' }] };
   if (/^\/v2\/services\/[^/]+\/report$/.test(route)) shape = { service: { name: 'string', health: 'string' }, definition: { indicators: [{}], dependencies: [{}], redundancyGroups: [{ members: [{}] }] }, current: { state: 'string', indicators: [{}], dependencies: [{}], redundancyGroups: [{ members: [{}] }] } };
   if (/^\/v2\/monitors\/[^/]+\/uptime$/.test(route)) shape = { monitor: { name: 'string', type: 'string', address: 'string' }, target: { id: 'string', name: 'string' }, status: 'string', summary: { availabilityPercent: 'number|null', averageResponseTimeMs: 'number|null', incidentCount: 'count' }, configuration: {} };

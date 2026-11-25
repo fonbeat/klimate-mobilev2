@@ -43,7 +43,7 @@ function InboxMessages({ header, filter }: { header: ReactElement; filter: strin
   const { colors } = useV2Theme();
   const responsive = useResponsiveLayout();
   const request = useAuthenticatedRequest();
-  const { unread: sharedUnread, error: badgeError, lastVerifiedAt, refresh: refreshBadge, inspect, recovered, invalidate: invalidateBadge, recordRead } = useInboxBadge();
+  const { unread: sharedUnread, error: badgeError, lastVerifiedAt, refresh: refreshBadge, inspect, recovered, invalidate: invalidateBadge, recordRead, readRevision } = useInboxBadge();
   const unread = sharedUnread ?? 0;
   const inboxSummary = describeInbox(sharedUnread, badgeError);
   const [actionError, setActionError] = useState('');
@@ -52,6 +52,15 @@ function InboxMessages({ header, filter }: { header: ReactElement; filter: strin
   const mutating = useRef(false);
   const pagePath = useCallback((offset: number, limit: number) => `/v2/notifications?offset=${offset}&limit=${limit}&unreadOnly=${filter === 'Unread'}`, [filter]);
   const result = usePaginatedApi<NotificationInboxPage, NotificationInboxItem>({ path: pagePath, items: pageItems, total: pageTotal, pageSize: 30 });
+  const appliedReadRevision = useRef(readRevision);
+  useEffect(() => {
+    if (appliedReadRevision.current === readRevision) return;
+    appliedReadRevision.current = readRevision;
+    // A read action can finish after the user switches filters. Refresh the
+    // mounted list with its current filter and discard older in-flight reads.
+    result.invalidate();
+    void result.refreshVisible();
+  }, [readRevision, result]);
   const records = useMemo(() => inboxItems(result.records, filter === 'Unread', recovered), [filter, recovered, result.records]);
   useEffect(() => { void inspect(result.records); }, [inspect, result.records]);
   // Recovered rows still occupy server pagination slots. Continue past a page
@@ -78,9 +87,7 @@ function InboxMessages({ header, filter }: { header: ReactElement; filter: strin
       invalidateBadge();
       try {
         await request<void>(`/v2/notifications/${encodeURIComponent(item.id)}/read`, { method: 'PATCH', body: '{}' });
-        result.setRecords((records) => filter === 'Unread' ? records.filter((record) => record.id !== item.id) : records.map((record) => record.id === item.id ? { ...record, read: true } : record));
         recordRead(item.id);
-        void result.refreshVisible();
         void refreshBadge();
       } catch (error) { setActionError(messageOf(error)); return; }
       finally { mutating.current = false; setMarkingItem(false); }
@@ -96,8 +103,6 @@ function InboxMessages({ header, filter }: { header: ReactElement; filter: strin
     try {
       await request<void>('/v2/notifications/read', { method: 'PATCH', body: '{}' });
       recordRead();
-      result.setRecords((records) => filter === 'Unread' ? [] : records.map((record) => ({ ...record, read: true })));
-      await result.refreshVisible();
       await refreshBadge();
     } catch (error) { setActionError(messageOf(error)); }
     finally { mutating.current = false; setMarkingAll(false); }

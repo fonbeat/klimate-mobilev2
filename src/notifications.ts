@@ -1,4 +1,5 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { randomUUID } from 'expo-crypto';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
@@ -27,13 +28,13 @@ export function syncAppBadge(unread: number) {
 const installation = singleFlightInstallation(
   () => SecureStore.getItemAsync(INSTALLATION_KEY),
   (id) => SecureStore.setItemAsync(INSTALLATION_KEY, id),
-  () => `klimate-${Platform.OS}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  () => randomUUID(),
 );
 export async function getInstallationId() { return (await installation())!; }
 
 const CLEANUP_KEY = 'klimate.push.pending-removals.v1';
 let authenticatedRead: typeof api | undefined;
-type RegistrationPhase = 'pending' | 'registered' | 'failed' | 'denied' | 'unavailable';
+type RegistrationPhase = 'pending' | 'registered' | 'failed' | 'owned' | 'denied' | 'unavailable';
 let registration = { scope: '', confirmedScope: '', phase: 'pending' as RegistrationPhase };
 const registrationListeners = new Set<() => void>();
 function subscribeRegistration(listener: () => void) {
@@ -52,7 +53,7 @@ export function usePushRegistrationStatus() {
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const foregroundOutage = AppState.currentState === 'active' && isOutagePush(notification.request.content.data);
-    const wrongScope = foregroundOutage && (!registration.scope || (!!registration.confirmedScope && registration.confirmedScope !== registration.scope));
+    const wrongScope = foregroundOutage && (!registration.scope || registration.phase === 'owned' || (!!registration.confirmedScope && registration.confirmedScope !== registration.scope));
     // The cursor-based listener owns foreground outage audio.
     return { shouldShowBanner: !wrongScope, shouldShowList: !wrongScope, shouldPlaySound: !foregroundOutage, shouldSetBadge: !wrongScope };
   },
@@ -115,7 +116,7 @@ export async function retirePushSession(previous: Session) {
     if (registration.confirmedScope === sessionScope(retired)) setRegistration(registration.scope, registration.phase, '');
   }
   catch { warn(cleanupMessage); }
-  finally { await api('/v2/sessions/logout', { method: 'POST', body: JSON.stringify({ refreshToken: retired.refreshToken }) }).catch(() => undefined); }
+  finally { await api('/v2/sessions/logout', { method: 'POST', body: JSON.stringify({ refreshToken: retired.refreshToken }) }); }
 }
 
 export function usePushCleanupWarning() {
@@ -202,7 +203,7 @@ export async function requestPushNotifications(accessToken: string): Promise<Pus
     }
     return await syncPushRegistration(lease);
   } catch (error) {
-    if (lease.current()) setRegistration(sessionScope(lease.session()), 'failed');
+    if (lease.current()) setRegistration(sessionScope(lease.session()), pushOwnershipConflict(error) ? 'owned' : 'failed');
     throw error;
   }
 }
@@ -219,6 +220,10 @@ async function syncPushRegistration(lease: PushLease, active = () => true): Prom
   const registered = await registerPushToken(lease, current);
   if (current() && registered) setRegistration(scope, 'registered', scope);
   return registered ? 'registered' : 'unavailable';
+}
+
+function pushOwnershipConflict(error: unknown) {
+  return error instanceof ApiError && error.code === 'PUSH_INSTALLATION_OWNED';
 }
 
 export function usePushRegistration(scope: string) {
@@ -240,8 +245,9 @@ export function usePushRegistration(scope: string) {
         await configureNotifications();
         await syncPushRegistration(lease, () => active);
         failureCount = 0;
-      } catch {
+      } catch (error) {
         if (!active || !lease.current()) return;
+        if (pushOwnershipConflict(error)) { setRegistration(scope, 'owned'); return; }
         setRegistration(scope, 'failed');
         if (AppState.currentState === 'active') retry = setTimeout(() => void sync(), Math.min(60_000, 5000 * 2 ** Math.min(failureCount++, 4)));
       } finally { syncing = false; }

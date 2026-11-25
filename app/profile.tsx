@@ -99,7 +99,7 @@ export default function Profile() {
         <View style={[styles.insetSeparator, { backgroundColor: colors.line }]} />
         <PreferenceRow label="Gateway-offline sound" detail="A distinct, lower two-note chime" value={sounds.preferences.probeDown} disabled={sounds.loading || soundBusy} onChange={(enabled) => void saveSound('probeDown', enabled)} />
         <View style={[styles.insetSeparator, { backgroundColor: colors.line }]} />
-        <PreferenceRow label="Vibrate on alerts" detail="For each new outage, even with sounds off. Subject to your phone’s vibration settings." value={sounds.preferences.vibrate} disabled={sounds.loading || soundBusy} onChange={(enabled) => void saveSound('vibrate', enabled)} />
+        <PreferenceRow label="Vibrate on alerts" detail="When Klimate detects new outages while the app is open, even with sounds off. Subject to your phone’s vibration settings." value={sounds.preferences.vibrate} disabled={sounds.loading || soundBusy} onChange={(enabled) => void saveSound('vibrate', enabled)} />
         <FilterBar options={['Monitor', 'Gateway']} value={testSound === 'monitorDown' ? 'Monitor' : 'Gateway'} onChange={(label) => setTestSound(label === 'Monitor' ? 'monitorDown' : 'probeDown')} label="Sound to preview" />
         <Button label="Test sound" variant="secondary" icon="play-outline" disabled={sounds.loading || !sounds.ready || soundBusy} busy={soundBusy} onPress={() => void (async () => {
           setSoundBusy(true); setSoundMessage('');
@@ -121,7 +121,7 @@ export default function Profile() {
     </View>
 
     <LegalLinks />
-    <Pressable accessibilityRole="button" onPress={() => void signOut()} style={({ pressed }) => [styles.signOut, { backgroundColor: colors.card, borderColor: colors.line }, pressed && styles.pressed]}><Ionicons name="log-out-outline" size={20} color={colors.down} /><Text style={[styles.signOutText, { color: colors.down }]}>Sign out</Text></Pressable>
+    <Pressable accessibilityRole="button" onPress={() => void signOut().catch(() => undefined)} style={({ pressed }) => [styles.signOut, { backgroundColor: colors.card, borderColor: colors.line }, pressed && styles.pressed]}><Ionicons name="log-out-outline" size={20} color={colors.down} /><Text style={[styles.signOutText, { color: colors.down }]}>Sign out</Text></Pressable>
   </Page></SafeAreaView>;
 }
 

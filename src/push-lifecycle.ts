@@ -70,8 +70,8 @@ export class PushLifecycle {
       }
       if (!lease.current()) return false;
       await put(lease.session(), installationId, token);
-      // The API binds one owner per installation. A successful PUT supersedes
-      // old-owner cleanup for this installation without using another user's token.
+      // Registration succeeds after the server verifies the installation's
+      // ownership or authenticated release.
       await this.updatePending((items) => lease.current() ? items.filter((item) => item.installationId !== installationId) : items);
       return lease.current();
     });

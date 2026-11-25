@@ -59,8 +59,8 @@ export function PhoneNotifications({ organizationName }: { organizationName?: st
     <Text style={[typography.metadata, { color: colors.muted }]}>Monitor-down and gateway-offline push alerts are kept enabled by Klimate Mobile. Your phone must allow notifications to receive them when the app is closed.</Text>
     {permission === 'quiet' && <Text style={[typography.metadata, { color: colors.muted }]}>Your phone currently delivers notifications quietly. Change this in phone settings if you want banners and sounds.</Text>}
     {!pushProjectId() && <Text style={[typography.metadata, { color: colors.attention }]}>Push delivery is not configured in this build. Phone permission alone does not enable delivery.</Text>}
-    {allowed && pushProjectId() && <Text accessibilityLiveRegion="polite" style={[typography.metadata, { color: phase === 'failed' || ownerChanged ? colors.attention : colors.muted }]}>
-      {phase === 'registered' ? `Registered for ${organizationName ?? 'this organization'}.` : phase === 'failed' ? 'Couldn’t confirm push registration. Klimate will retry while the app is open.' : phase === 'unavailable' ? 'Push registration is unavailable in this build.' : 'Confirming push registration…'}
+    {allowed && pushProjectId() && <Text accessibilityLiveRegion="polite" style={[typography.metadata, { color: phase === 'failed' || phase === 'owned' || ownerChanged ? colors.attention : colors.muted }]}>
+      {phase === 'registered' ? `Registered for ${organizationName ?? 'this organization'}.` : phase === 'owned' ? 'This phone is linked to another account. Sign in to that account and sign out while online to release push registration.' : phase === 'failed' ? 'Couldn’t confirm push registration. Klimate will retry while the app is open.' : phase === 'unavailable' ? 'Push registration is unavailable in this build.' : 'Confirming push registration…'}
       {ownerChanged ? ' This phone may still receive alerts for the previous organization.' : ''}
     </Text>}
     {permission !== 'unavailable' && <>

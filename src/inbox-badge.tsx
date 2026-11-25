@@ -17,6 +17,7 @@ type InboxBadgeContextValue = {
   recovered: (item: NotificationInboxItem) => boolean;
   invalidate: () => void;
   recordRead: (id?: string) => void;
+  readRevision: number;
 };
 
 const InboxBadgeContext = createContext<InboxBadgeContextValue | null>(null);
@@ -91,9 +92,12 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
       : { scope, serverUnread: null, items: [], ledger });
   }, [recoveries, scope]);
 
+  const [readRevision, setReadRevision] = useState(0);
   const recordRead = useCallback((id?: string) => {
+    if (scopeRef.current !== scope) return;
     invalidate();
     cache.unread.recordRead(id);
+    setReadRevision((previous) => previous + 1);
     setSnapshot((previous) => {
       if (previous.scope !== scope) return previous;
       if (!id) return { ...previous, serverUnread: 0, items: [] };
@@ -108,7 +112,7 @@ export function InboxBadgeProvider({ children }: PropsWithChildren) {
   useEffect(() => { syncAppBadge(unread ?? 0); }, [unread, scope]);
   const error = verification.scope === scope ? verification.error : null;
   const lastVerifiedAt = verification.scope === scope ? verification.at : null;
-  const value = useMemo(() => ({ unread, error, lastVerifiedAt, refresh, inspect, recovered, invalidate, recordRead }), [unread, error, lastVerifiedAt, refresh, inspect, recovered, invalidate, recordRead]);
+  const value = useMemo(() => ({ unread, error, lastVerifiedAt, refresh, inspect, recovered, invalidate, recordRead, readRevision }), [unread, error, lastVerifiedAt, refresh, inspect, recovered, invalidate, recordRead, readRevision]);
   return <InboxBadgeContext.Provider value={value}>{children}</InboxBadgeContext.Provider>;
 }
 

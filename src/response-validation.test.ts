@@ -2,6 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { restorableSession, validSession, validResponse } from './response-validation.ts';
 
+test('incident details reject success responses missing the nested incident', () => {
+  const path = '/v2/incidents/incident-id';
+  const report = {
+    incident: { id: 'incident-id', status: 'open', label: 'Example', type: 'PING', startedAt: '2026-11-25T00:00:00Z' },
+    startedAt: '2026-11-25T00:00:00Z', resolvedAt: null, recovery: '',
+  };
+  assert.equal(validResponse(path, { ...report, incident: undefined }), false);
+  assert.equal(validResponse(path, report), true);
+});
+
 const session = { user: { ID: 'u', firstname: 'Test', lastname: 'User', email: 'user@example.invalid', role: 'owner', isAdmin: true, isOwner: true }, accessToken: 'access', refreshToken: 'refresh' };
 test('stored sessions require typed credentials and reject malformed or expired refresh/session lifetimes', () => {
   assert.ok(validSession(session));

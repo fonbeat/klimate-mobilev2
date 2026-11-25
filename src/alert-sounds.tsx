@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useSession } from './session';
 import { useAuthenticatedRequest } from './use-api';
-import { AlertSoundController, defaultAlertSounds, parseAlertSounds, type AlertSound, type AlertSoundPreferences, type SoundCue } from './alert-sound-controller';
+import { AlertSoundController, defaultAlertSounds, parseAlertSounds, type AlertSound, type AlertSoundPreferences, type ForegroundAlertResponse } from './alert-sound-controller';
 
 type SoundSettings = {
   preferences: AlertSoundPreferences;
@@ -80,7 +80,7 @@ export function AlertSoundsProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (!scope || loading) return;
     const controller = new AlertSoundController(
-      (path) => requestRef.current<SoundCue>(path),
+      (path) => requestRef.current<ForegroundAlertResponse>(path),
       () => preferencesRef.current,
       async (sound, current) => {
         if (!current() || scopeRef.current !== scope || AppState.currentState !== 'active') return;

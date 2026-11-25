@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AlertSoundController, defaultAlertSounds, isOutagePush, parseAlertSounds, type AlertSound, type SoundCue } from './alert-sound-controller.ts';
+import { ApiError } from './api.ts';
+import { AlertSoundController, defaultAlertSounds, isOutagePush, parseAlertSounds, type AlertEventPage, type AlertSound, type SoundCue } from './alert-sound-controller.ts';
 
 const cursor = (n: number) => new Date(Date.UTC(2026, 9, 16, 12, 0, n)).toISOString();
 function fixture(cues: SoundCue[]) {
   const paths: string[] = [], played: AlertSound[] = [];
   const preferences = { ...defaultAlertSounds };
-  const controller = new AlertSoundController(async (path) => {
+  const controller = legacyController(async (path) => {
     paths.push(path);
     const cue = cues.shift();
     if (!cue) throw new Error('offline');
@@ -57,7 +58,7 @@ test('muting consumes cues; repeated/older cursors do not replay; resume establi
 });
 
 test('backgrounding or changing organizations invalidates in-flight responses and prevents overlapping polls', async () => {
-  let resolve!: (cue: SoundCue) => void;
+  let resolve!: (cue: AlertEventPage) => void;
   let reads = 0;
   const played: AlertSound[] = [];
   const controller = new AlertSoundController(() => {
@@ -67,17 +68,17 @@ test('backgrounding or changing organizations invalidates in-flight responses an
   const initial = controller.resume();
   await controller.poll();
   assert.equal(reads, 1);
-  resolve({ play: 'none', cursor: cursor(0) }); await initial;
+  resolve({ events: [], cursor: 'start', hasMore: false }); await initial;
   const pending = controller.poll();
   controller.pause();
-  resolve({ play: 'probeDown', cursor: cursor(30) }); await pending;
+  resolve({ events: [{ id: 'down', type: 'probeDown' }], cursor: 'next', hasMore: false }); await pending;
   assert.deepEqual(played, []);
 });
 
 test('failed requests preserve the last cursor and invalid payloads cannot play sound', async () => {
   const paths: string[] = [], played: AlertSound[] = [];
   let step = 0;
-  const controller = new AlertSoundController(async (path) => {
+  const controller = legacyController(async (path) => {
     paths.push(path);
     if (step++ === 1) throw new Error('offline');
     return step === 1 ? { play: 'none', cursor: cursor(0) } : { play: 'probeDown', cursor: 'invalid' };
@@ -105,7 +106,7 @@ test('a playback still preparing audio is cancelled when the foreground session 
   const started = new Promise<void>((resolve) => { entered = resolve; });
   const gate = new Promise<void>((resolve) => { release = resolve; });
   let reads = 0, played = 0;
-  const controller = new AlertSoundController(async () => ({ play: reads++ ? 'probeDown' : 'none', cursor: cursor(reads * 30) }),
+  const controller = legacyController(async () => ({ play: reads++ ? 'probeDown' : 'none', cursor: cursor(reads * 30) }),
     () => defaultAlertSounds, async (_sound, current) => {
       entered(); await gate;
       if (current()) played++;
@@ -130,7 +131,7 @@ test('vibration-only mode delivers new outage cues, not first-load, recovery, re
     { play: 'probeDown', cursor: cursor(150) },
   ];
   const feedback: AlertSound[] = [];
-  const controller = new AlertSoundController(async () => cues.shift()!, () => preferences, async (sound) => { feedback.push(sound); });
+  const controller = legacyController(async () => cues.shift()!, () => preferences, async (sound) => { feedback.push(sound); });
   await controller.resume();
   for (let i = 0; i < 4; i++) await controller.poll();
   assert.deepEqual(feedback, ['monitorDown', 'probeDown']);
@@ -142,4 +143,30 @@ test('vibration-only mode delivers new outage cues, not first-load, recovery, re
   assert.deepEqual(feedback, ['monitorDown', 'probeDown', 'probeDown']);
   controller.pause(); await controller.poll();
   assert.equal(feedback.length, 3);
+});
+
+function legacyController(read: (path: string) => Promise<SoundCue>, preferences: ConstructorParameters<typeof AlertSoundController>[1], play: ConstructorParameters<typeof AlertSoundController>[2]) {
+  return new AlertSoundController((path) => {
+    if (path.startsWith('/v3/status/alertEvents')) return Promise.reject(new ApiError('Not found', 404));
+    return read(path);
+  }, preferences, play);
+}
+
+test('one cue covers all individual outages across alert continuation pages', async () => {
+  const played: AlertSound[] = [];
+  const paths: string[] = [];
+  const controller = new AlertSoundController(async (path) => {
+    paths.push(path);
+    const sequence = paths.length;
+    if (sequence === 1) return { cursor: 'start', events: [], hasMore: false };
+    if (sequence === 2) return { cursor: 'middle', events: [{ id: 'first', type: 'monitorDown' }, { id: 'second', type: 'monitorDown' }], hasMore: true };
+    if (sequence === 3) throw new Error('temporary network failure');
+    return { cursor: 'end', events: [{ id: 'third', type: 'probeDown' }, { id: 'recovered', type: 'monitorUp' }], hasMore: false };
+  }, () => defaultAlertSounds, async (sound) => { played.push(sound); });
+  await controller.resume();
+  await controller.poll();
+  assert.deepEqual(played, []);
+  await controller.poll();
+  assert.deepEqual(played, ['probeDown']);
+  assert.deepEqual(paths, ['/v3/status/alertEvents', '/v3/status/alertEvents?cursor=start', '/v3/status/alertEvents?cursor=middle', '/v3/status/alertEvents?cursor=middle']);
 });
